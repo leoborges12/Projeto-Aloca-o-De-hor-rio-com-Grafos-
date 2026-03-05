@@ -9,17 +9,15 @@ export default function Restricoes() {
   const [disciplina, setDisciplina] = useState("");
   const [bloco, setBloco] = useState(0);
 
-  // NOVO: painel/visualização
+  // painel/visualização
   const [mostrarPainel, setMostrarPainel] = useState(false);
   const [filtroTipo, setFiltroTipo] = useState("todos");
   const [filtroOrigem, setFiltroOrigem] = useState("todas");
 
-  // =========================
-  // IMPORTAR RESTRIÇÕES (ARQUIVOS ESCOLHIDOS)
-  // =========================
+  // importar restrições (arquivos do backend/dados)
   const [mostrarImport, setMostrarImport] = useState(false);
   const [arquivosDisp, setArquivosDisp] = useState([]);
-  const [selecionados, setSelecionados] = useState({}); // { "fixos.csv": true, ... }
+  const [selecionados, setSelecionados] = useState({});
   const [importando, setImportando] = useState(false);
   const [erroImport, setErroImport] = useState("");
 
@@ -34,6 +32,62 @@ export default function Restricoes() {
           e?.message ||
           "Erro ao listar arquivos de restrições.",
       );
+    }
+  }
+
+  // ✅ **UPLOAD DO PC (CSV) — ESTA É A FUNÇÃO CERTA**
+  async function uploadCSVRestricoes(files) {
+    if (!files || files.length === 0) return;
+
+    setErroImport("");
+    setImportando(true);
+
+    try {
+      const fd = new FormData();
+      for (const f of files) fd.append("files", f);
+
+      const res = await api.post("/upload/restricoes", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      const novas = (res.data.restricoes || []).map((r) => ({
+        ...r,
+        origem: r.origem || "upload",
+      }));
+
+      // evita duplicar iguais
+      const chave = (r) =>
+        JSON.stringify({
+          tipo: r.tipo || "",
+          disciplina: r.disciplina || "",
+          bloco: r.bloco ?? null,
+          dia: r.dia || "",
+          disciplina1: r.disciplina1 || "",
+          disciplina2: r.disciplina2 || "",
+          origem: r.origem || "",
+        });
+
+      const setExist = new Set((restricoes || []).map(chave));
+      const mescladas = [...(restricoes || [])];
+
+      for (const r of novas) {
+        const k = chave(r);
+        if (!setExist.has(k)) {
+          mescladas.push(r);
+          setExist.add(k);
+        }
+      }
+
+      setRestricoes(mescladas);
+      setMostrarPainel(true); // abre painel pra ver o que entrou
+    } catch (e) {
+      setErroImport(
+        e?.response?.data?.detail ||
+          e?.message ||
+          "Erro ao enviar CSV de restrições.",
+      );
+    } finally {
+      setImportando(false);
     }
   }
 
@@ -52,14 +106,11 @@ export default function Restricoes() {
       const res = await api.post("/restricoes/importar", { arquivos: lista });
       const novas = res.data.restricoes || [];
 
-      // marca origem (nome do arquivo) se o backend não mandou
-      // (se backend já manda origem, isso não atrapalha)
       const novasComOrigem = novas.map((r) => ({
         ...r,
         origem: r.origem || "importado",
       }));
 
-      // evita duplicar iguais
       const chave = (r) =>
         JSON.stringify({
           tipo: r.tipo || "",
@@ -83,11 +134,6 @@ export default function Restricoes() {
       }
 
       setRestricoes(mescladas);
-
-      // opcional: já abre o painel de detalhes pra ver o que importou
-      // setMostrarPainel(true);
-
-      // fecha o import depois
       setMostrarImport(false);
     } catch (e) {
       setErroImport(
@@ -100,7 +146,6 @@ export default function Restricoes() {
     }
   }
 
-  // carrega lista ao entrar na página (uma vez)
   useEffect(() => {
     carregarArquivosRestricoes();
   }, []);
@@ -113,7 +158,7 @@ export default function Restricoes() {
     ]);
   }
 
-  // --- listas auxiliares para filtros ---
+  // filtros
   const tiposDisponiveis = useMemo(() => {
     const set = new Set(restricoes.map((r) => r.tipo).filter(Boolean));
     return ["todos", ...Array.from(set)];
@@ -133,7 +178,6 @@ export default function Restricoes() {
     });
   }, [restricoes, filtroTipo, filtroOrigem]);
 
-  // --- agrupamento por tipo (pra mostrar separado bonito) ---
   const gruposPorTipo = useMemo(() => {
     const g = {};
     for (const r of restricoesFiltradas) {
@@ -144,7 +188,6 @@ export default function Restricoes() {
     return g;
   }, [restricoesFiltradas]);
 
-  // --- renderização por tipo ---
   function renderGrupo(tipo, lista) {
     const titulo =
       {
@@ -155,7 +198,6 @@ export default function Restricoes() {
         mesmo_horario: "Mesmo horário (disciplina1, disciplina2)",
       }[tipo] || tipo;
 
-    // formato “CSV-like” (bem parecido com o que tu mostrou)
     if (
       tipo === "nao_coincidir" ||
       tipo === "mesmo_bloco" ||
@@ -202,7 +244,6 @@ ${lista.map((r) => `${r.disciplina || ""},${r.dia || ""}`).join("\n")}`}
       );
     }
 
-    // default: fixo
     return (
       <div style={{ marginTop: 14 }}>
         <h4 style={{ marginBottom: 6 }}>
@@ -222,34 +263,54 @@ ${lista.map((r) => `${r.disciplina || ""},${r.bloco ?? ""}`).join("\n")}`}
       </div>
     );
   }
-  <div
-    style={{
-      border: "1px solid #e2e8f0",
-      padding: 12,
-      borderRadius: 10,
-      marginBottom: 12,
-    }}
-  >
-    <h3 style={{ marginTop: 0 }}>Enviar restrições do seu computador (CSV)</h3>
 
-    <input
-      type="file"
-      accept=".csv"
-      multiple
-      onChange={(e) => uploadCSVRestricoes(Array.from(e.target.files || []))}
-    />
-
-    <p style={{ margin: "8px 0 0", color: "#64748b" }}>
-      Você pode enviar 1 ou vários CSVs. O backend lê em memória e devolve as
-      restrições já normalizadas.
-    </p>
-  </div>;
   return (
     <div style={{ padding: 20 }}>
       <h2>Restrições e Preferências</h2>
-      {/* =========================
-          IMPORTAR RESTRIÇÕES (ESCOLHER ARQUIVOS)
-         ========================= */}
+
+      {/* ✅ **UPLOAD DO PC (COLE AQUI SE QUISER MOVER DE LUGAR)**
+          - Este bloco está no lugar certo (dentro do return).
+      */}
+      <div
+        style={{
+          marginTop: 10,
+          padding: 12,
+          border: "1px solid #ddd",
+          borderRadius: 10,
+          background: "#ffffff",
+        }}
+      >
+        <h3 style={{ margin: 0 }}>Enviar restrições do seu computador (CSV)</h3>
+
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            marginTop: 10,
+          }}
+        >
+          <input
+            type="file"
+            accept=".csv"
+            multiple
+            disabled={importando}
+            onChange={(e) =>
+              uploadCSVRestricoes(Array.from(e.target.files || []))
+            }
+          />
+          {importando ? (
+            <span style={{ color: "#64748b" }}>Processando...</span>
+          ) : null}
+        </div>
+
+        <p style={{ marginTop: 8, color: "#64748b" }}>
+          Você pode enviar 1 ou vários CSVs. O backend lê em memória e devolve
+          as restrições já normalizadas.
+        </p>
+      </div>
+
+      {/* IMPORTAR RESTRIÇÕES (ESCOLHER ARQUIVOS DO BACKEND) */}
       <div style={{ marginTop: 10 }}>
         <Botao
           texto={
@@ -318,6 +379,7 @@ ${lista.map((r) => `${r.disciplina || ""},${r.bloco ?? ""}`).join("\n")}`}
         </div>
       )}
 
+      {/* CADASTRO FIXO MANUAL */}
       <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
         <select
           value={disciplina}
@@ -361,7 +423,6 @@ ${lista.map((r) => `${r.disciplina || ""},${r.bloco ?? ""}`).join("\n")}`}
         Restrições Definidas ({restricoes.length})
       </h3>
 
-      {/* Visual “limpo”: em vez de listar tudo e poluir, só mostra um resumo curto */}
       <div style={{ color: "#444", marginTop: 6 }}>
         {(() => {
           const cont = {};
@@ -372,6 +433,10 @@ ${lista.map((r) => `${r.disciplina || ""},${r.bloco ?? ""}`).join("\n")}`}
             .join(" | ");
         })()}
       </div>
+
+      {erroImport ? (
+        <div style={{ marginTop: 10, color: "#991b1b" }}>{erroImport}</div>
+      ) : null}
 
       {mostrarPainel && (
         <div
@@ -425,7 +490,6 @@ ${lista.map((r) => `${r.disciplina || ""},${r.bloco ?? ""}`).join("\n")}`}
             </div>
           </div>
 
-          {/* Renderiza por tipo */}
           {Object.keys(gruposPorTipo).length === 0 ? (
             <p style={{ color: "#666", marginTop: 12 }}>
               Nenhuma restrição nesse filtro.
@@ -445,59 +509,4 @@ ${lista.map((r) => `${r.disciplina || ""},${r.bloco ?? ""}`).join("\n")}`}
       </div>
     </div>
   );
-}
-async function uploadCSVRestricoes(files) {
-  if (!files || files.length === 0) return;
-
-  setErroImport("");
-  setImportando(true);
-
-  try {
-    const fd = new FormData();
-    for (const f of files) fd.append("files", f);
-
-    const res = await api.post("/upload/restricoes", fd, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-
-    const novas = (res.data.restricoes || []).map((r) => ({
-      ...r,
-      origem: r.origem || "upload",
-    }));
-
-    // aqui você escolhe: substituir tudo ou mesclar
-    // vou deixar MESCLAR (mais amigável)
-    const chave = (r) =>
-      JSON.stringify({
-        tipo: r.tipo || "",
-        disciplina: r.disciplina || "",
-        bloco: r.bloco ?? null,
-        dia: r.dia || "",
-        disciplina1: r.disciplina1 || "",
-        disciplina2: r.disciplina2 || "",
-        origem: r.origem || "",
-      });
-
-    const setExist = new Set((restricoes || []).map(chave));
-    const mescladas = [...(restricoes || [])];
-
-    for (const r of novas) {
-      const k = chave(r);
-      if (!setExist.has(k)) {
-        mescladas.push(r);
-        setExist.add(k);
-      }
-    }
-
-    setRestricoes(mescladas);
-    setMostrarPainel(true); // opcional: abre painel pra ver o que entrou
-  } catch (e) {
-    setErroImport(
-      e?.response?.data?.detail ||
-        e?.message ||
-        "Erro ao enviar CSV de restrições.",
-    );
-  } finally {
-    setImportando(false);
-  }
 }
