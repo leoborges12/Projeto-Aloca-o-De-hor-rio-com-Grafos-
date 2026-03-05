@@ -31,12 +31,11 @@ export default function GradeTabela({ config, resultado, disciplinas }) {
 
   // ---- define o "período" (12 ou 34) a partir do índice do bloco dentro do dia
   function periodoDoIndice(indiceNoDia) {
-    // padrão esperado: 4 blocos por dia => 0,1 = "12" e 2,3 = "34"
-    if (blocosPorDia === 4) return indiceNoDia < 2 ? "12" : "34";
-
-    // fallback: se alguém mudar para outro número, vira "P1", "P2"...
-    const meio = Math.ceil(blocosPorDia / 2);
-    return indiceNoDia < meio ? "12" : "34";
+    // Cada "período" agrupa 2 blocos: (0,1)->12; (2,3)->34; (4,5)->56; (6,7)->78...
+    const pi = Math.floor(indiceNoDia / 2);
+    const a = pi * 2 + 1;
+    const b = pi * 2 + 2;
+    return `${a}${b}`;
   }
 
   // ---- estrutura: grade[semestre][periodo][dia] = [itens...]
@@ -86,8 +85,14 @@ export default function GradeTabela({ config, resultado, disciplinas }) {
     return String(a).localeCompare(String(b));
   });
 
-  const periodosOrdem = ["12", "34"];
-
+  const periodosOrdem = Array.from(
+    { length: Math.ceil(blocosPorDia / 2) },
+    (_, i) => {
+      const a = i * 2 + 1;
+      const b = i * 2 + 2;
+      return `${a}${b}`;
+    },
+  );
   return (
     <div style={{ overflowX: "auto", marginTop: 12 }}>
       <div style={{ fontWeight: "bold", marginBottom: 8 }}>
