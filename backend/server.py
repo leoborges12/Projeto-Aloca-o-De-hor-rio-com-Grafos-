@@ -14,7 +14,7 @@ import csv
 import sys
 import io
 from contextlib import redirect_stdout, redirect_stderr
-
+from fastapi import UploadFile, File
 
 
 
@@ -148,6 +148,29 @@ def _ler_csv(path: Path):
 
 	return itens
 
+def _ler_csv_texto(conteudo: str) -> list[dict]:
+    itens = []
+    f = io.StringIO(conteudo)
+
+    amostra = conteudo[:2048]
+    try:
+        dialeto = csv.Sniffer().sniff(amostra, delimiters=";,")
+    except Exception:
+        dialeto = csv.get_dialect("excel")
+
+    reader = csv.DictReader(f, dialect=dialeto)
+
+    for row in reader:
+        limpo = {}
+        for k, v in (row or {}).items():
+            if k is None:
+                continue
+            kk = str(k).strip()
+            vv = v.strip() if isinstance(v, str) else v
+            limpo[kk] = vv
+        itens.append(limpo)
+
+    return itens
 @app.get("/dados")
 def listar_dados():
     """
@@ -546,3 +569,49 @@ def baixar_out(arquivo: str):
     if OUT_DIR not in path.parents or not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Arquivo não encontrado")
     return FileResponse(path, filename=path.name)
+@app.post("/upload/disciplinas")
+async def upload_disciplinas(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Envie um arquivo .csv")
+
+    raw = await file.read()
+    texto = raw.decode("utf-8-sig", errors="replace")
+
+    rows = _ler_csv_texto(texto)
+
+    disciplinas = []
+    for r in rows:
+        nome = (r.get("nome") or r.get("disciplina") or r.get("Nome") or r.get("Disciplina") or "").strip()
+        if not nome:
+            continue
+
+        prof = (r.get("prof") or r.get("professor") or r.get("Prof") or r.get("Professor") or "").strip()
+        semestre = (r.get("semestre") or r.get("Semestre") or "").strip()
+
+        disciplinas.append({
+            "nome": nome,
+            "prof": _prof_display(prof),
+            "semestre": semestre
+        })
+
+    return {"disciplinas": disciplinas}
+
+
+@app.post("/upload/restricoes")
+async def upload_restricoes(files: List[UploadFile] = File(...)):
+    if not files:
+        return {"restricoes": []}
+
+    restricoes: list[dict] = []
+
+    for f in files:
+        if not (f.filename or "").lower().endswith(".csv"):
+            raise HTTPException(status_code=400, detail=f"Arquivo inválido (não é .csv): {f.filename}")
+
+        raw = await f.read()
+        texto = raw.decode("utf-8-sig", errors="replace")
+        rows = _ler_csv_texto(texto)
+
+        restricoes.extend(_inferir_restricoes(rows, f.filename or "upload.csv"))
+
+    return {"restricoes": restricoes}

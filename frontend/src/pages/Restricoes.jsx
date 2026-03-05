@@ -222,7 +222,28 @@ ${lista.map((r) => `${r.disciplina || ""},${r.bloco ?? ""}`).join("\n")}`}
       </div>
     );
   }
+  <div
+    style={{
+      border: "1px solid #e2e8f0",
+      padding: 12,
+      borderRadius: 10,
+      marginBottom: 12,
+    }}
+  >
+    <h3 style={{ marginTop: 0 }}>Enviar restrições do seu computador (CSV)</h3>
 
+    <input
+      type="file"
+      accept=".csv"
+      multiple
+      onChange={(e) => uploadCSVRestricoes(Array.from(e.target.files || []))}
+    />
+
+    <p style={{ margin: "8px 0 0", color: "#64748b" }}>
+      Você pode enviar 1 ou vários CSVs. O backend lê em memória e devolve as
+      restrições já normalizadas.
+    </p>
+  </div>;
   return (
     <div style={{ padding: 20 }}>
       <h2>Restrições e Preferências</h2>
@@ -424,4 +445,59 @@ ${lista.map((r) => `${r.disciplina || ""},${r.bloco ?? ""}`).join("\n")}`}
       </div>
     </div>
   );
+}
+async function uploadCSVRestricoes(files) {
+  if (!files || files.length === 0) return;
+
+  setErroImport("");
+  setImportando(true);
+
+  try {
+    const fd = new FormData();
+    for (const f of files) fd.append("files", f);
+
+    const res = await api.post("/upload/restricoes", fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+
+    const novas = (res.data.restricoes || []).map((r) => ({
+      ...r,
+      origem: r.origem || "upload",
+    }));
+
+    // aqui você escolhe: substituir tudo ou mesclar
+    // vou deixar MESCLAR (mais amigável)
+    const chave = (r) =>
+      JSON.stringify({
+        tipo: r.tipo || "",
+        disciplina: r.disciplina || "",
+        bloco: r.bloco ?? null,
+        dia: r.dia || "",
+        disciplina1: r.disciplina1 || "",
+        disciplina2: r.disciplina2 || "",
+        origem: r.origem || "",
+      });
+
+    const setExist = new Set((restricoes || []).map(chave));
+    const mescladas = [...(restricoes || [])];
+
+    for (const r of novas) {
+      const k = chave(r);
+      if (!setExist.has(k)) {
+        mescladas.push(r);
+        setExist.add(k);
+      }
+    }
+
+    setRestricoes(mescladas);
+    setMostrarPainel(true); // opcional: abre painel pra ver o que entrou
+  } catch (e) {
+    setErroImport(
+      e?.response?.data?.detail ||
+        e?.message ||
+        "Erro ao enviar CSV de restrições.",
+    );
+  } finally {
+    setImportando(false);
+  }
 }

@@ -1,6 +1,7 @@
 import { useWizard } from "../context/WizardContext";
 import { useEffect, useState } from "react";
 import Botao from "../components/Botao";
+import { api } from "../api/api";
 
 export default function Disciplinas() {
   const {
@@ -19,10 +20,13 @@ export default function Disciplinas() {
 
   const [datasetSel, setDatasetSel] = useState("");
 
+  const [erroUpload, setErroUpload] = useState("");
+  const [uploadando, setUploadando] = useState(false);
+
   useEffect(() => {
     // carrega automaticamente a lista de datasets quando entra na tela
     carregarDatasets().catch(() => {});
-  }, []);
+  }, [carregarDatasets]);
 
   function adicionar() {
     if (!nome.trim()) return;
@@ -46,9 +50,97 @@ export default function Disciplinas() {
     await importarDataset(datasetSel);
   }
 
+  async function uploadCSVDisciplinas(file) {
+    if (!file) return;
+
+    setErroUpload("");
+    setUploadando(true);
+
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+
+      const res = await api.post("/upload/disciplinas", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      const disc = (res.data.disciplinas || []).map((d) => ({
+        nome: d.nome || "",
+        prof: d.prof || "",
+        semestre: d.semestre || "",
+      }));
+
+      setDisciplinas(disc);
+
+      // opcional (recomendado): limpa o select do dataset pronto
+      setDatasetSel("");
+    } catch (e) {
+      setErroUpload(
+        e?.response?.data?.detail ||
+          e?.message ||
+          "Erro ao enviar CSV de disciplinas.",
+      );
+    } finally {
+      setUploadando(false);
+    }
+  }
+
   return (
     <div style={{ padding: 20 }}>
       <h2>Gerenciar Disciplinas</h2>
+
+      {/* IMPORTAR DO PC (UPLOAD) */}
+      <div
+        style={{
+          marginTop: 10,
+          padding: 12,
+          border: "1px solid #ddd",
+          borderRadius: 10,
+          background: "#ffffff",
+        }}
+      >
+        <h3 style={{ margin: 0 }}>Importar do seu computador (CSV)</h3>
+
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            marginTop: 10,
+            alignItems: "center",
+          }}
+        >
+          <input
+            type="file"
+            accept=".csv"
+            disabled={uploadando}
+            onChange={(e) => uploadCSVDisciplinas(e.target.files?.[0])}
+          />
+
+          {uploadando ? (
+            <span style={{ color: "#64748b" }}>Enviando...</span>
+          ) : null}
+        </div>
+
+        <p style={{ marginTop: 8, color: "#64748b" }}>
+          O CSV é lido no backend e usado apenas nesta sessão (não salva no
+          servidor).
+        </p>
+
+        {erroUpload ? (
+          <div
+            style={{
+              marginTop: 10,
+              padding: 10,
+              borderRadius: 8,
+              border: "1px solid #fecaca",
+              background: "#fff1f2",
+              color: "#991b1b",
+            }}
+          >
+            <strong>Erro no upload:</strong> {erroUpload}
+          </div>
+        ) : null}
+      </div>
 
       {/* IMPORTAR DADOS PRONTOS */}
       <div
