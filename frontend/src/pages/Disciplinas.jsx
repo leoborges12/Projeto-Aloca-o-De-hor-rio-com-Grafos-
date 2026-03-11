@@ -17,26 +17,42 @@ export default function Disciplinas() {
   const [nome, setNome] = useState("");
   const [prof, setProf] = useState("");
   const [semestre, setSemestre] = useState("");
+  const [aulasPorSemana, setAulasPorSemana] = useState(1);
 
   const [datasetSel, setDatasetSel] = useState("");
-
   const [erroUpload, setErroUpload] = useState("");
   const [uploadando, setUploadando] = useState(false);
 
   useEffect(() => {
-    // carrega automaticamente a lista de datasets quando entra na tela
     carregarDatasets().catch(() => {});
   }, [carregarDatasets]);
 
+  function normalizarDisciplina(d) {
+    return {
+      nome: d.nome || d.Nome || d.disciplina || "",
+      prof: d.prof || d.professor || d.professores || "",
+      semestre: d.semestre || d.Semestre || "",
+      aulas_por_semana: Number(d.aulas_por_semana || d.aulasPorSemana || 1),
+    };
+  }
+
   function adicionar() {
     if (!nome.trim()) return;
+
     setDisciplinas([
       ...disciplinas,
-      { nome: nome.trim(), prof: prof.trim(), semestre: semestre.trim() },
+      {
+        nome: nome.trim(),
+        prof: prof.trim(),
+        semestre: semestre.trim(),
+        aulas_por_semana: Math.max(1, Number(aulasPorSemana) || 1),
+      },
     ]);
+
     setNome("");
     setProf("");
     setSemestre("");
+    setAulasPorSemana(1);
   }
 
   function remover(index) {
@@ -61,18 +77,13 @@ export default function Disciplinas() {
       fd.append("file", file);
 
       const res = await api.post("/upload/disciplinas", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
       });
 
-      const disc = (res.data.disciplinas || []).map((d) => ({
-        nome: d.nome || "",
-        prof: d.prof || "",
-        semestre: d.semestre || "",
-      }));
-
+      const disc = (res.data.disciplinas || []).map(normalizarDisciplina);
       setDisciplinas(disc);
-
-      // opcional (recomendado): limpa o select do dataset pronto
       setDatasetSel("");
     } catch (e) {
       setErroUpload(
@@ -89,7 +100,7 @@ export default function Disciplinas() {
     <div style={{ padding: 20 }}>
       <h2>Gerenciar Disciplinas</h2>
 
-      {/* IMPORTAR DO PC (UPLOAD) */}
+      {/* UPLOAD CSV DO COMPUTADOR */}
       <div
         style={{
           marginTop: 10,
@@ -116,17 +127,14 @@ export default function Disciplinas() {
             onChange={(e) => uploadCSVDisciplinas(e.target.files?.[0])}
           />
 
-          {uploadando ? (
-            <span style={{ color: "#64748b" }}>Enviando...</span>
-          ) : null}
+          {uploadando && <span style={{ color: "#64748b" }}>Enviando...</span>}
         </div>
 
         <p style={{ marginTop: 8, color: "#64748b" }}>
-          O CSV é lido no backend e usado apenas nesta sessão (não salva no
-          servidor).
+          O CSV é enviado para o backend e usado apenas nesta sessão.
         </p>
 
-        {erroUpload ? (
+        {erroUpload && (
           <div
             style={{
               marginTop: 10,
@@ -139,10 +147,10 @@ export default function Disciplinas() {
           >
             <strong>Erro no upload:</strong> {erroUpload}
           </div>
-        ) : null}
+        )}
       </div>
 
-      {/* IMPORTAR DADOS PRONTOS */}
+      {/* IMPORTAR DATASET DO BACKEND */}
       <div
         style={{
           marginTop: 10,
@@ -161,6 +169,7 @@ export default function Disciplinas() {
             style={{ flex: 2, padding: 8 }}
           >
             <option value="">Selecione...</option>
+
             {datasets.map((d) => (
               <option key={d} value={d}>
                 {d}
@@ -169,6 +178,7 @@ export default function Disciplinas() {
           </select>
 
           <Botao texto="Importar" onClick={importar} cor="#2563eb" />
+
           <Botao
             texto="Recarregar lista"
             onClick={() => carregarDatasets()}
@@ -191,24 +201,37 @@ export default function Disciplinas() {
       <div style={{ marginTop: 20 }}>
         <h3>Adicionar disciplina manualmente</h3>
 
-        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+        <div
+          style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}
+        >
           <input
             value={nome}
             onChange={(e) => setNome(e.target.value)}
-            placeholder="Nome (ex: Cálculo I)"
-            style={{ flex: 2, padding: 8 }}
+            placeholder="Nome (ex: Cálculo A)"
+            style={{ flex: 2, padding: 8, minWidth: 220 }}
           />
+
           <input
             value={prof}
             onChange={(e) => setProf(e.target.value)}
             placeholder="Professores (ex: Silva|Santos)"
-            style={{ flex: 2, padding: 8 }}
+            style={{ flex: 2, padding: 8, minWidth: 220 }}
           />
+
           <input
             value={semestre}
             onChange={(e) => setSemestre(e.target.value)}
-            placeholder="Semestre (opcional)"
-            style={{ flex: 1, padding: 8 }}
+            placeholder="Semestre"
+            style={{ flex: 1, padding: 8, minWidth: 120 }}
+          />
+
+          <input
+            type="number"
+            min="1"
+            value={aulasPorSemana}
+            onChange={(e) => setAulasPorSemana(e.target.value)}
+            placeholder="Aulas/semana"
+            style={{ flex: 1, padding: 8, minWidth: 140 }}
           />
         </div>
 
@@ -217,7 +240,7 @@ export default function Disciplinas() {
         </div>
       </div>
 
-      {/* LISTA */}
+      {/* LISTA DE DISCIPLINAS */}
       <h3 style={{ marginTop: 15 }}>Disciplinas ({disciplinas.length})</h3>
 
       {disciplinas.length === 0 ? (
@@ -232,13 +255,16 @@ export default function Disciplinas() {
                 justifyContent: "space-between",
                 borderBottom: "1px solid #eee",
                 padding: "8px 0",
+                gap: 12,
               }}
             >
               <div>
                 <strong>{d.nome}</strong>
                 {d.prof ? ` / ${d.prof}` : ""}
-                {d.semestre ? ` / ${d.semestre}` : ""}
+                {d.semestre ? ` / semestre ${d.semestre}` : ""}
+                {` / ${Number(d.aulas_por_semana || 1)} aula(s)/semana`}
               </div>
+
               <button onClick={() => remover(i)} style={{ cursor: "pointer" }}>
                 remover
               </button>
@@ -249,6 +275,7 @@ export default function Disciplinas() {
 
       <div style={{ display: "flex", gap: 10, marginTop: 15 }}>
         <Botao texto="← Voltar" onClick={() => setStep(0)} cor="#64748b" />
+
         <Botao
           texto="Próximo: Definir Restrições →"
           onClick={() => setStep(2)}
