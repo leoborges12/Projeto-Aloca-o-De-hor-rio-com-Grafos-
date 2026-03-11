@@ -29,9 +29,8 @@ export default function GradeTabela({ config, resultado, disciplinas }) {
     Dom: "dom",
   };
 
-  // ---- define o "período" (12 ou 34) a partir do índice do bloco dentro do dia
+  // ---- define o "período" dinamicamente: 12, 34, 56, 78...
   function periodoDoIndice(indiceNoDia) {
-    // Cada "período" agrupa 2 blocos: (0,1)->12; (2,3)->34; (4,5)->56; (6,7)->78...
     const pi = Math.floor(indiceNoDia / 2);
     const a = pi * 2 + 1;
     const b = pi * 2 + 2;
@@ -59,15 +58,18 @@ export default function GradeTabela({ config, resultado, disciplinas }) {
     const indiceNoDia = bloco % blocosPorDia;
     const periodo = periodoDoIndice(indiceNoDia);
 
+    // remove "[1/2]" ou "[2/2]" para achar o semestre da disciplina-base
+    const nomeBase = disc.replace(/\s*\[\d+\/\d+\]/, "");
+
     const sem = (
       resultado.semestre_por_disc?.[disc] ??
-      semestrePorDisc[disc] ??
+      semestrePorDisc[nomeBase] ??
       ""
     )
       .toString()
       .trim();
 
-    const nome = nomeExibicao[disc] || disc;
+    const nome = nomeExibicao[disc] || nomeBase;
 
     if (!sem) {
       pushCell(semSemestre, periodo, dia, nome);
@@ -93,10 +95,11 @@ export default function GradeTabela({ config, resultado, disciplinas }) {
       return `${a}${b}`;
     },
   );
+
   return (
     <div style={{ overflowX: "auto", marginTop: 12 }}>
       <div style={{ fontWeight: "bold", marginBottom: 8 }}>
-        Oferta Regular — {new Date().getFullYear()}/
+        Oferta Regular — {new Date().getFullYear()} /{" "}
         {new Date().getMonth() < 6 ? "1" : "2"}
       </div>
 
@@ -247,6 +250,6 @@ const tdCellStyle = {
 };
 
 const itemStyle = {
-  fontSize: 12, // diminui para caber tudo (como você pediu)
+  fontSize: 12,
   lineHeight: "14px",
 };
