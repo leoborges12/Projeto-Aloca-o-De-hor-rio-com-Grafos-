@@ -66,11 +66,11 @@ export default function Grade() {
         nome: d.nome ?? d.Nome ?? d.disciplina ?? "",
         prof: d.prof ?? d.professores ?? d.professor ?? "",
         semestre: d.semestre ?? d.Semestre ?? "",
+        aulas_por_semana: Number(d.aulas_por_semana ?? d.aulasPorSemana ?? 1),
       }));
 
       // Normaliza restrições (mantém os campos usados no backend)
       const restricoesNorm = (restricoes || []).map((r) => {
-        // tenta achar o "tipo" em vários nomes possíveis
         const tipo =
           r.tipo ??
           r.kind ??
@@ -80,9 +80,15 @@ export default function Grade() {
           (typeof r === "string" ? r : null);
 
         return {
-          tipo: tipo || "fixo", // fallback (se não achar, manda "fixo")
+          tipo: tipo || "fixo",
           disciplina: r.disciplina ?? r.nome ?? r.disciplina_nome ?? null,
           bloco: r.bloco ?? r.slot ?? r.horario ?? null,
+          ocorrencia:
+            r.ocorrencia !== undefined &&
+            r.ocorrencia !== null &&
+            r.ocorrencia !== ""
+              ? Number(r.ocorrencia)
+              : null,
           dia: r.dia ?? null,
           disciplina1: r.disciplina1 ?? r.a ?? null,
           disciplina2: r.disciplina2 ?? r.b ?? null,

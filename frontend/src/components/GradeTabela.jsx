@@ -8,17 +8,15 @@ export default function GradeTabela({ config, resultado, disciplinas }) {
 
   const blocosPorDia = Number(config.blocos_por_dia || 4);
 
-  const horarios = resultado.horarios || {}; // {bloco: "Seg 08:00"}
-  const alocacao = resultado.alocacao || {}; // {disc: bloco}
-  const nomeExibicao = resultado.nome_exibicao || {}; // {disc: "Disc / Prof"}
+  const horarios = resultado.horarios || {};
+  const alocacao = resultado.alocacao || {};
+  const nomeExibicao = resultado.nome_exibicao || {};
 
-  // ---- mapa: disciplina -> semestre (vem do cadastro)
   const semestrePorDisc = {};
   (disciplinas || []).forEach((d) => {
     semestrePorDisc[d.nome] = (d.semestre ?? "").toString().trim();
   });
 
-  // ---- normaliza dia do backend ("Seg", "Ter"...) -> "seg"...
   const diaMap = {
     Seg: "seg",
     Ter: "ter",
@@ -29,17 +27,13 @@ export default function GradeTabela({ config, resultado, disciplinas }) {
     Dom: "dom",
   };
 
-  // ---- define o "período" dinamicamente: 12, 34, 56, 78...
+  // agora cada linha da tabela representa UM bloco do dia
   function periodoDoIndice(indiceNoDia) {
-    const pi = Math.floor(indiceNoDia / 2);
-    const a = pi * 2 + 1;
-    const b = pi * 2 + 2;
-    return `${a}${b}`;
+    return String(indiceNoDia + 1);
   }
 
-  // ---- estrutura: grade[semestre][periodo][dia] = [itens...]
   const grade = {};
-  const semSemestre = {}; // semSemestre[periodo][dia] = [itens...]
+  const semSemestre = {};
 
   function pushCell(container, periodo, dia, texto) {
     if (!container[periodo]) container[periodo] = {};
@@ -49,16 +43,15 @@ export default function GradeTabela({ config, resultado, disciplinas }) {
 
   Object.entries(alocacao).forEach(([disc, blocoRaw]) => {
     const bloco = Number(blocoRaw);
-    const label = horarios[bloco] || ""; // "Ter 10:00"
+    const label = horarios[bloco] || "";
     const parts = String(label).split(" ");
-    const diaTxt = parts[0]; // "Ter"
+    const diaTxt = parts[0];
     const dia = diaMap[diaTxt];
     if (!dia) return;
 
     const indiceNoDia = bloco % blocosPorDia;
     const periodo = periodoDoIndice(indiceNoDia);
 
-    // remove "[1/2]" ou "[2/2]" para achar o semestre da disciplina-base
     const nomeBase = disc.replace(/\s*\[\d+\/\d+\]/, "");
 
     const sem = (
@@ -81,19 +74,14 @@ export default function GradeTabela({ config, resultado, disciplinas }) {
   });
 
   const semestresOrdenados = Object.keys(grade).sort((a, b) => {
-    const na = Number(a),
-      nb = Number(b);
+    const na = Number(a);
+    const nb = Number(b);
     if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
     return String(a).localeCompare(String(b));
   });
 
-  const periodosOrdem = Array.from(
-    { length: Math.ceil(blocosPorDia / 2) },
-    (_, i) => {
-      const a = i * 2 + 1;
-      const b = i * 2 + 2;
-      return `${a}${b}`;
-    },
+  const periodosOrdem = Array.from({ length: blocosPorDia }, (_, i) =>
+    String(i + 1),
   );
 
   return (
@@ -160,7 +148,6 @@ export default function GradeTabela({ config, resultado, disciplinas }) {
         </tbody>
       </table>
 
-      {/* Seção opcional: disciplinas sem semestre */}
       {Object.keys(semSemestre).length ? (
         <div style={{ marginTop: 18 }}>
           <div style={{ fontWeight: "bold", marginBottom: 8 }}>

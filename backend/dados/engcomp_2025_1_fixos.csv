@@ -1,31 +1,31 @@
-disciplina,bloco
-Gestão_Proj,5
-Ele_Fis,0
-Ele_Fis1,9
-Ele_Mat,2
-Ele_Mat1,7
-Quimica,4
-Quimica1,8
-Cal_A,2
-Cal_A1,7
-Cal_B,2
-Cal_B1,7
-ALGA,3
-ALGA1,6
-Fund_Fisica_A,0
-Fund_Fisica_A1,4
-Probabilidade,0
-Est_Basica,1
-Mec_Geral,0
-Mec_Geral1,1
-Circuitos,7
-Circuitos1,6
-Fund_Fisica_B,9
-Fund_Fisica_B1,4
-EDO,3
-EDO1,6
-FT_A1,0
-FT_A,1
+disciplina,ocorrencia,bloco
+Gestão_Proj, ,5
+Ele_Fis,1,0
+Ele_Fis,2,9
+Ele_Mat,1,2
+Ele_Mat,2,7
+Quimica,1,4
+Quimica,2,8
+Cal_A,1,2
+Cal_A,2,7
+Cal_B,1,2
+Cal_B,2,7
+ALGA,1,3
+ALGA,2,6
+Fund_Fisica_A,1,0
+Fund_Fisica_A,2,4
+Probabilidade, ,0
+Est_Basica, ,1
+Mec_Geral,1,0
+Mec_Geral,2,1
+Circuitos,1,7
+Circuitos,2,6
+Fund_Fisica_B,1,9
+Fund_Fisica_B,2,4
+EDO,1,3
+EDO,2,6
+FT_A,1,0
+FT_A,2,1
 
 
 

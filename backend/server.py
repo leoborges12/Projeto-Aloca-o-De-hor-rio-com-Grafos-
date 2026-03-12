@@ -79,10 +79,10 @@ class Restricao(BaseModel):
     tipo: Literal["fixo", "dia_fixo", "nao_coincidir", "mesmo_bloco", "mesmo_horario"] = "fixo"
     disciplina: Optional[str] = None
     bloco: Optional[int] = None
+    ocorrencia: Optional[int] = None
     dia: Optional[str] = None
     disciplina1: Optional[str] = None
     disciplina2: Optional[str] = None
-
 
 class Entrada(BaseModel):
     config: Config
@@ -200,6 +200,13 @@ def _ler_csv_texto(conteudo: str) -> list[dict]:
 
 
 def _inferir_restricoes(rows: list[dict], filename: str) -> list[dict]:
+    """
+    Converte linhas de CSV em objetos compatíveis com o model Restricao do back/front:
+    tipo: fixo | dia_fixo | nao_coincidir | mesmo_bloco | mesmo_horario
+
+    Além disso, adiciona:
+    origem: nome do arquivo
+    """
     fname = filename.lower()
 
     tipo_padrao = None
@@ -218,6 +225,7 @@ def _inferir_restricoes(rows: list[dict], filename: str) -> list[dict]:
     for r in rows:
         disciplina = r.get("disciplina") or r.get("nome") or ""
         bloco = r.get("bloco")
+        ocorrencia = r.get("ocorrencia")
         dia = r.get("dia")
 
         d1 = r.get("disciplina1") or r.get("d1") or r.get("a") or ""
@@ -239,6 +247,12 @@ def _inferir_restricoes(rows: list[dict], filename: str) -> list[dict]:
             obj["disciplina"] = disciplina
             obj["bloco"] = int(bloco) if bloco is not None and str(bloco).strip() != "" else None
 
+            if ocorrencia is not None and str(ocorrencia).strip() != "":
+                try:
+                    obj["ocorrencia"] = int(ocorrencia)
+                except Exception:
+                    obj["ocorrencia"] = None
+
         elif tipo == "dia_fixo":
             obj["disciplina"] = disciplina
             obj["dia"] = dia
@@ -251,7 +265,6 @@ def _inferir_restricoes(rows: list[dict], filename: str) -> list[dict]:
             restricoes.append(obj)
 
     return restricoes
-
 
 def _normalizar_disciplina_row(r: dict) -> dict:
     nome_disc = (
@@ -467,14 +480,28 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
                 encontrados = [n for n, base in nome_base_por_expandida.items() if base == nome]
                 return encontrados if encontrados else [nome]
 
-            # 1) Monta grafo base
+            def expandir_nome_disciplina_por_ocorrencia(nome: str, ocorrencia: Optional[int]) -> List[str]:
+                encontrados = expandir_nome_disciplina(nome)
+                if not encontrados:
+                    return []
+
+                if ocorrencia is None:
+                    return encontrados
+
+                idx = int(ocorrencia) - 1
+                if 0 <= idx < len(encontrados):
+                    return [encontrados[idx]]
+
+                return []
+
+            # monta grafo base
             G = construir_grafo(
                 disciplinas_list,
                 conflito_por_prof=dados.config.conflito_por_prof,
                 conflito_por_semestre=dados.config.conflito_por_semestre
             )
 
-            # 2) Processa restrições
+            # processa restrições
             fixos: Dict[str, int] = {}
             pares_mesmo: List[tuple] = []
             pares_nao: List[tuple] = []
@@ -483,9 +510,11 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
             for r in dados.restricoes:
                 if r.tipo == "fixo":
                     if r.disciplina and r.bloco is not None:
-                        expandidas = expandir_nome_disciplina(r.disciplina)
+                        expandidas = expandir_nome_disciplina_por_ocorrencia(
+                            r.disciplina,
+                            r.ocorrencia
+                        )
                         if expandidas:
-                            # fixa só a primeira ocorrência
                             fixos[expandidas[0]] = int(r.bloco)
 
                 elif r.tipo == "dia_fixo":
@@ -513,7 +542,7 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
                                 if a != b:
                                     pares_mesmo.append((a, b))
 
-            # aplica “não pode coincidir” como aresta
+            # aplica "não pode coincidir" como aresta
             for a, b in pares_nao:
                 if a in G and b in G:
                     G.add_edge(a, b)
@@ -552,6 +581,24 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
             if usados:
                 desbalanceamento = max(dist[b] for b in usados) - min(dist[b] for b in usados)
 
+            total_disciplinas_base = len(disciplinas_orig)
+
+            total_ocorrencias = sum(
+                max(1, int(d.get("aulas_por_semana", 1) or 1))
+                for d in disciplinas_orig
+            )
+
+            ocorrencias_alocadas = len([
+                k for k in cores.keys()
+                if k in nome_base_por_expandida
+            ])
+
+            disciplinas_base_alocadas = len(set(
+                nome_base_por_expandida.get(k, k)
+                for k in cores.keys()
+                if k in nome_base_por_expandida
+            ))
+
             # nome exibicao
             prof_display = {}
             for d in disciplinas_list:
@@ -573,6 +620,10 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
                     "blocos_usados": len(usados),
                     "desbalanceamento": desbalanceamento,
                     "dist_por_bloco": {str(k): int(v) for k, v in dist.items()},
+                    "total_disciplinas_base": total_disciplinas_base,
+                    "disciplinas_base_alocadas": disciplinas_base_alocadas,
+                    "total_ocorrencias": total_ocorrencias,
+                    "ocorrencias_alocadas": ocorrencias_alocadas,
                 },
                 "nome_exibicao": nome_exibicao,
                 "logs": logs,
@@ -588,7 +639,6 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
         detail += f"\nERRO: {msg}"
 
         raise HTTPException(status_code=400, detail=detail)
-
 
 # --------------------------
 # Exportação
