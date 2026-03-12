@@ -1,40 +1,39 @@
 import { useWizard } from "../context/WizardContext";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Botao from "../components/Botao";
 import { api } from "../api/api";
 
+function baixarModeloDisciplinas() {
+  const conteudo = `nome,prof,semestre,aulas_por_semana
+Algoritmos I,Prof. João,1,2
+Cálculo I,Prof. Maria,1,2
+Física I,Prof. Carlos,1,1
+IPCP_EPTURMA21,Sandra,,2
+`;
+
+  const blob = new Blob([conteudo], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "modelo_disciplinas.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  URL.revokeObjectURL(url);
+}
+
 export default function Disciplinas() {
-  const {
-    disciplinas,
-    setDisciplinas,
-    setStep,
-    datasets,
-    datasetAtual,
-    carregarDatasets,
-    importarDataset,
-  } = useWizard();
+  const { disciplinas, setDisciplinas, setStep } = useWizard();
 
   const [nome, setNome] = useState("");
   const [prof, setProf] = useState("");
   const [semestre, setSemestre] = useState("");
   const [aulasPorSemana, setAulasPorSemana] = useState(1);
 
-  const [datasetSel, setDatasetSel] = useState("");
   const [erroUpload, setErroUpload] = useState("");
-  const [uploadando, setUploadando] = useState(false);
-
-  useEffect(() => {
-    carregarDatasets().catch(() => {});
-  }, [carregarDatasets]);
-
-  function normalizarDisciplina(d) {
-    return {
-      nome: d.nome || d.Nome || d.disciplina || "",
-      prof: d.prof || d.professor || d.professores || "",
-      semestre: d.semestre || d.Semestre || "",
-      aulas_por_semana: Number(d.aulas_por_semana || d.aulasPorSemana || 1),
-    };
-  }
+  const [enviando, setEnviando] = useState(false);
 
   function adicionar() {
     if (!nome.trim()) return;
@@ -45,7 +44,7 @@ export default function Disciplinas() {
         nome: nome.trim(),
         prof: prof.trim(),
         semestre: semestre.trim(),
-        aulas_por_semana: Math.max(1, Number(aulasPorSemana) || 1),
+        aulas_por_semana: Number(aulasPorSemana) || 1,
       },
     ]);
 
@@ -61,30 +60,28 @@ export default function Disciplinas() {
     setDisciplinas(copia);
   }
 
-  async function importar() {
-    if (!datasetSel) return;
-    await importarDataset(datasetSel);
-  }
-
   async function uploadCSVDisciplinas(file) {
     if (!file) return;
 
-    setErroUpload("");
-    setUploadando(true);
-
     try {
+      setErroUpload("");
+      setEnviando(true);
+
       const fd = new FormData();
       fd.append("file", file);
 
       const res = await api.post("/upload/disciplinas", fd, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
+        headers: { "Content-Type": "multipart/form-data" },
       });
 
-      const disc = (res.data.disciplinas || []).map(normalizarDisciplina);
+      const disc = (res.data.disciplinas || []).map((d) => ({
+        nome: d.nome || "",
+        prof: d.prof || "",
+        semestre: d.semestre || "",
+        aulas_por_semana: Number(d.aulas_por_semana || 1),
+      }));
+
       setDisciplinas(disc);
-      setDatasetSel("");
     } catch (e) {
       setErroUpload(
         e?.response?.data?.detail ||
@@ -92,7 +89,7 @@ export default function Disciplinas() {
           "Erro ao enviar CSV de disciplinas.",
       );
     } finally {
-      setUploadando(false);
+      setEnviando(false);
     }
   }
 
@@ -100,104 +97,104 @@ export default function Disciplinas() {
     <div style={{ padding: 20 }}>
       <h2>Gerenciar Disciplinas</h2>
 
-      {/* UPLOAD CSV DO COMPUTADOR */}
+      {/* Upload do CSV */}
       <div
         style={{
           marginTop: 10,
-          padding: 12,
-          border: "1px solid #ddd",
-          borderRadius: 10,
-          background: "#ffffff",
+          padding: 16,
+          border: "1px solid #e5e7eb",
+          borderRadius: 12,
+          background: "#f8fafc",
         }}
       >
-        <h3 style={{ margin: 0 }}>Importar do seu computador (CSV)</h3>
+        <h3 style={{ marginTop: 0 }}>Upload de disciplinas.csv</h3>
 
-        <div
-          style={{
-            display: "flex",
-            gap: 10,
-            marginTop: 10,
-            alignItems: "center",
-          }}
-        >
-          <input
-            type="file"
-            accept=".csv"
-            disabled={uploadando}
-            onChange={(e) => uploadCSVDisciplinas(e.target.files?.[0])}
-          />
+        <input
+          type="file"
+          accept=".csv"
+          onChange={(e) => uploadCSVDisciplinas(e.target.files?.[0])}
+        />
 
-          {uploadando && <span style={{ color: "#64748b" }}>Enviando...</span>}
-        </div>
-
-        <p style={{ marginTop: 8, color: "#64748b" }}>
-          O CSV é enviado para o backend e usado apenas nesta sessão.
+        <p style={{ marginTop: 10, color: "#64748b" }}>
+          O arquivo é enviado para o backend e usado apenas nesta sessão.
         </p>
 
-        {erroUpload && (
+        {enviando ? (
+          <p style={{ color: "#0f172a" }}>Enviando arquivo...</p>
+        ) : null}
+
+        {erroUpload ? (
           <div
             style={{
               marginTop: 10,
               padding: 10,
               borderRadius: 8,
+              background: "#fef2f2",
               border: "1px solid #fecaca",
-              background: "#fff1f2",
               color: "#991b1b",
             }}
           >
-            <strong>Erro no upload:</strong> {erroUpload}
+            {erroUpload}
           </div>
-        )}
+        ) : null}
       </div>
 
-      {/* IMPORTAR DATASET DO BACKEND */}
+      {/* Explicação do formato */}
       <div
         style={{
-          marginTop: 10,
-          padding: 12,
-          border: "1px solid #ddd",
-          borderRadius: 10,
-          background: "#f8fafc",
+          marginTop: 16,
+          padding: 16,
+          border: "1px solid #e5e7eb",
+          borderRadius: 12,
+          background: "#ffffff",
         }}
       >
-        <h3 style={{ margin: 0 }}>Importar dados prontos (backend/dados)</h3>
+        <h3 style={{ marginTop: 0 }}>Formato esperado do arquivo</h3>
 
-        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-          <select
-            value={datasetSel}
-            onChange={(e) => setDatasetSel(e.target.value)}
-            style={{ flex: 2, padding: 8 }}
-          >
-            <option value="">Selecione...</option>
+        <p style={{ marginBottom: 8 }}>Use um CSV com as colunas abaixo:</p>
 
-            {datasets.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
+        <pre
+          style={{
+            background: "#f6f7f9",
+            padding: 12,
+            borderRadius: 8,
+            overflowX: "auto",
+            marginTop: 0,
+          }}
+        >
+          {`nome,prof,semestre,aulas_por_semana
+Algoritmos I,Prof. João,1,2
+Cálculo I,Prof. Maria,1,2
+Física I,Prof. Carlos,1,1
+IPCP_EPTURMA21,Sandra,,2`}
+        </pre>
 
-          <Botao texto="Importar" onClick={importar} cor="#2563eb" />
-
-          <Botao
-            texto="Recarregar lista"
-            onClick={() => carregarDatasets()}
-            cor="#64748b"
-          />
+        <div style={{ marginTop: 10, color: "#334155" }}>
+          <div>
+            <strong>nome</strong>: nome da disciplina
+          </div>
+          <div>
+            <strong>prof</strong>: professor ou professores
+          </div>
+          <div>
+            <strong>semestre</strong>: pode ficar vazio
+          </div>
+          <div>
+            <strong>aulas_por_semana</strong>: se ficar vazio, o sistema assume
+            1
+          </div>
         </div>
 
-        {datasetAtual ? (
-          <p style={{ marginTop: 8, color: "#0f172a" }}>
-            Dataset atual: <strong>{datasetAtual}</strong>
-          </p>
-        ) : (
-          <p style={{ marginTop: 8, color: "#64748b" }}>
-            Nenhum dataset importado ainda.
-          </p>
-        )}
+        <div style={{ marginTop: 14 }}>
+          <Botao
+            texto="Baixar modelo de disciplinas.csv"
+            onClick={baixarModeloDisciplinas}
+            cor="#0f766e"
+          />
+        </div>
       </div>
 
-      {/* CADASTRO MANUAL */}
+      {/* Cadastro manual */}
       <div style={{ marginTop: 20 }}>
         <h3>Adicionar disciplina manualmente</h3>
 
@@ -208,21 +205,21 @@ export default function Disciplinas() {
             value={nome}
             onChange={(e) => setNome(e.target.value)}
             placeholder="Nome (ex: Cálculo A)"
-            style={{ flex: 2, padding: 8, minWidth: 220 }}
+            style={{ flex: 2, minWidth: 220, padding: 8 }}
           />
 
           <input
             value={prof}
             onChange={(e) => setProf(e.target.value)}
             placeholder="Professores (ex: Silva|Santos)"
-            style={{ flex: 2, padding: 8, minWidth: 220 }}
+            style={{ flex: 2, minWidth: 220, padding: 8 }}
           />
 
           <input
             value={semestre}
             onChange={(e) => setSemestre(e.target.value)}
             placeholder="Semestre"
-            style={{ flex: 1, padding: 8, minWidth: 120 }}
+            style={{ flex: 1, minWidth: 140, padding: 8 }}
           />
 
           <input
@@ -231,7 +228,7 @@ export default function Disciplinas() {
             value={aulasPorSemana}
             onChange={(e) => setAulasPorSemana(e.target.value)}
             placeholder="Aulas/semana"
-            style={{ flex: 1, padding: 8, minWidth: 140 }}
+            style={{ width: 160, padding: 8 }}
           />
         </div>
 
@@ -240,11 +237,11 @@ export default function Disciplinas() {
         </div>
       </div>
 
-      {/* LISTA DE DISCIPLINAS */}
-      <h3 style={{ marginTop: 15 }}>Disciplinas ({disciplinas.length})</h3>
+      {/* Lista */}
+      <h3 style={{ marginTop: 20 }}>Disciplinas ({disciplinas.length})</h3>
 
       {disciplinas.length === 0 ? (
-        <p style={{ color: "#666" }}>Nenhuma disciplina cadastrada</p>
+        <p style={{ color: "#64748b" }}>Nenhuma disciplina cadastrada.</p>
       ) : (
         <div style={{ marginTop: 10 }}>
           {disciplinas.map((d, i) => (
@@ -253,15 +250,16 @@ export default function Disciplinas() {
               style={{
                 display: "flex",
                 justifyContent: "space-between",
+                alignItems: "center",
                 borderBottom: "1px solid #eee",
-                padding: "8px 0",
+                padding: "10px 0",
                 gap: 12,
               }}
             >
               <div>
                 <strong>{d.nome}</strong>
                 {d.prof ? ` / ${d.prof}` : ""}
-                {d.semestre ? ` / semestre ${d.semestre}` : ""}
+                {d.semestre ? ` / semestre ${d.semestre}` : " / sem semestre"}
                 {` / ${Number(d.aulas_por_semana || 1)} aula(s)/semana`}
               </div>
 
@@ -273,9 +271,8 @@ export default function Disciplinas() {
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 10, marginTop: 15 }}>
+      <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
         <Botao texto="← Voltar" onClick={() => setStep(0)} cor="#64748b" />
-
         <Botao
           texto="Próximo: Definir Restrições →"
           onClick={() => setStep(2)}
