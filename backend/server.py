@@ -15,6 +15,7 @@ import io
 from grafo import construir_grafo, colorir_grafo_balanceado
 from main import montar_horarios, indice_blocos_por_dia
 
+from supabase_client import supabase
 
 # --------------------------
 # Helpers
@@ -693,3 +694,11 @@ def baixar_out(arquivo: str):
     if OUT_DIR not in path.parents or not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Arquivo não encontrado")
     return FileResponse(path, filename=path.name)
+
+@app.get("/supabase-test")
+def supabase_test():
+    try:
+        res = supabase.table("cursos").select("*").limit(5).execute()
+        return {"ok": True, "dados": res.data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
