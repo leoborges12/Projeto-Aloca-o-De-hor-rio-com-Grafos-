@@ -30,26 +30,21 @@ export default function Grade() {
 
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState("");
-  const [links, setLinks] = useState({ csv: null, xlsx: null });
   const datasetNome = localStorage.getItem("dataset_nome") || "";
 
   const [nomeArquivo, setNomeArquivo] = useState(datasetNome || "grade");
-  const [salvando, setSalvando] = useState(false);
+  const [baixando, setBaixando] = useState(false);
 
   function formatarErroAPI(e) {
     const detail = e?.response?.data?.detail;
 
-    // FastAPI 422 costuma vir como array de objetos {loc, msg, type}
     if (Array.isArray(detail)) {
       return detail
         .map((x) => `${(x.loc || []).join(".")}: ${x.msg}`)
         .join(" | ");
     }
 
-    // às vezes vem string
     if (typeof detail === "string") return detail;
-
-    // às vezes vem objeto
     if (detail && typeof detail === "object") return JSON.stringify(detail);
 
     return e?.message || "Erro ao gerar grade (verifique backend).";
@@ -57,11 +52,9 @@ export default function Grade() {
 
   async function gerar() {
     setErro("");
-    setLinks({ csv: null, xlsx: null });
     setLoading(true);
 
     try {
-      // Normaliza disciplinas para o formato do backend: { nome, prof, semestre }
       const disciplinasNorm = (disciplinas || []).map((d) => ({
         nome: d.nome ?? d.Nome ?? d.disciplina ?? "",
         prof: d.prof ?? d.professores ?? d.professor ?? "",
@@ -69,7 +62,6 @@ export default function Grade() {
         aulas_por_semana: Number(d.aulas_por_semana ?? d.aulasPorSemana ?? 1),
       }));
 
-      // Normaliza restrições (mantém os campos usados no backend)
       const restricoesNorm = (restricoes || []).map((r) => {
         const tipo =
           r.tipo ??
@@ -103,19 +95,18 @@ export default function Grade() {
 
       setResultado(res.data);
     } catch (e) {
-      setErro(formatarErroAPI(e)); // <- sempre string (não quebra o React)
+      setErro(formatarErroAPI(e));
       setResultado(null);
     } finally {
       setLoading(false);
     }
   }
 
-  async function salvarNoBackend() {
+  async function exportarEbaixar(formato) {
     if (!resultado) return;
 
     setErro("");
-    setLinks({ csv: null, xlsx: null });
-    setSalvando(true);
+    setBaixando(true);
 
     try {
       const prefixoFinal = (nomeArquivo || datasetNome || "grade").trim();
@@ -127,15 +118,28 @@ export default function Grade() {
         nome_exibicao: resultado.nome_exibicao || {},
       });
 
-      setLinks({ csv: res.data.csv, xlsx: res.data.xlsx });
+      const baseURL = (api.defaults.baseURL || "").replace(/\/$/, "");
+      const caminho = formato === "xlsx" ? res.data.xlsx : res.data.csv;
+
+      if (!caminho) {
+        throw new Error(
+          formato === "xlsx"
+            ? "Arquivo XLSX não foi gerado."
+            : "Arquivo CSV não foi gerado.",
+        );
+      }
+
+      const link = document.createElement("a");
+      link.href = `${baseURL}${caminho}`;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.click();
     } catch (e) {
       const msg =
-        e?.response?.data?.detail ||
-        e?.message ||
-        "Erro ao exportar (verifique backend).";
+        e?.response?.data?.detail || e?.message || "Erro ao exportar arquivo.";
       setErro(msg);
     } finally {
-      setSalvando(false);
+      setBaixando(false);
     }
   }
 
@@ -157,7 +161,6 @@ export default function Grade() {
       blocoParaDisc[Number(bloco)] = nomeExibicao[disc] || disc;
     });
 
-    // horas (linhas)
     const horas = [];
     for (let i = 0; i < blocosPorDia; i++) {
       const label = horarios[i] || "";
@@ -178,45 +181,15 @@ export default function Grade() {
     }
 
     baixarArquivo(
-      "grade_matriz.csv",
-      linhas.join("\n"),
-      "text/csv;charset=utf-8",
-    );
-  }
-
-  function baixarCSV_lista() {
-    if (!resultado) return;
-
-    const horarios = resultado.horarios || {};
-    const alocacao = resultado.alocacao || {};
-    const nomeExibicao = resultado.nome_exibicao || {};
-
-    const linhas = [];
-    linhas.push(["Disciplina", "Bloco", "Dia", "Hora"].map(escCSV).join(","));
-
-    Object.entries(alocacao).forEach(([disc, bloco]) => {
-      const label = horarios[bloco] || "";
-      const parts = String(label).split(" ");
-      const dia = parts[0] || "";
-      const hora = parts[1] || "";
-
-      linhas.push(
-        [nomeExibicao[disc] || disc, bloco, dia, hora].map(escCSV).join(","),
-      );
-    });
-
-    baixarArquivo(
-      "grade_lista.csv",
+      `${(nomeArquivo || "grade").trim()}_matriz.csv`,
       linhas.join("\n"),
       "text/csv;charset=utf-8",
     );
   }
 
   const stats = resultado?.stats;
-  const totalDisciplinas = disciplinas.length;
-  const alocadas = resultado?.alocacao
-    ? Object.keys(resultado.alocacao).length
-    : 0;
+  const totalDisciplinas = stats?.total_disciplinas_base ?? disciplinas.length;
+  const alocadas = stats?.disciplinas_base_alocadas ?? 0;
 
   return (
     <div style={{ padding: 20 }}>
@@ -234,16 +207,11 @@ export default function Grade() {
         />
 
         <Botao
-          texto="Salvar em backend/out"
-          onClick={salvarNoBackend}
-          cor="#0ea5e9"
-        />
-
-        <Botao
           texto="Baixar CSV (matriz)"
           onClick={baixarCSV_matriz}
           cor="#2563eb"
         />
+
         <div
           style={{
             marginTop: 12,
@@ -258,7 +226,7 @@ export default function Grade() {
           }}
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <strong>Nome do arquivo (prefixo)</strong>
+            <strong>Nome do arquivo</strong>
             <input
               value={nomeArquivo}
               onChange={(e) => setNomeArquivo(e.target.value)}
@@ -282,44 +250,16 @@ export default function Grade() {
           </div>
 
           <Botao
-            texto={salvando ? "Salvando..." : "Salvar no backend/out"}
-            onClick={salvarNoBackend}
+            texto={baixando ? "Preparando CSV..." : "Baixar CSV"}
+            onClick={() => exportarEbaixar("csv")}
             cor="#0f766e"
           />
 
-          {links?.csv || links?.xlsx ? (
-            <div style={{ marginLeft: 10 }}>
-              <div>
-                <strong>Arquivos salvos em backend/out</strong>
-              </div>
-
-              {links.csv ? (
-                <div>
-                  CSV:{" "}
-                  <a
-                    href={`http://127.0.0.1:8000${links.csv}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    baixar
-                  </a>
-                </div>
-              ) : null}
-
-              {links.xlsx ? (
-                <div>
-                  XLSX:{" "}
-                  <a
-                    href={`http://127.0.0.1:8000${links.xlsx}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    baixar
-                  </a>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+          <Botao
+            texto={baixando ? "Preparando XLSX..." : "Baixar XLSX"}
+            onClick={() => exportarEbaixar("xlsx")}
+            cor="#0f766e"
+          />
         </div>
       </div>
 
@@ -336,48 +276,6 @@ export default function Grade() {
         >
           <strong>Erro:</strong>
           <pre style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>{erro}</pre>
-        </div>
-      ) : null}
-
-      {links.csv || links.xlsx ? (
-        <div
-          style={{
-            marginTop: 12,
-            padding: 12,
-            border: "1px solid #c7d2fe",
-            background: "#eef2ff",
-            borderRadius: 10,
-          }}
-        >
-          <div>
-            <strong>Arquivos salvos em backend/out</strong>
-          </div>
-
-          {links.csv ? (
-            <div>
-              CSV:{" "}
-              <a
-                href={`http://127.0.0.1:8000${links.csv}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                baixar
-              </a>
-            </div>
-          ) : null}
-
-          {links.xlsx ? (
-            <div>
-              XLSX:{" "}
-              <a
-                href={`http://127.0.0.1:8000${links.xlsx}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                baixar
-              </a>
-            </div>
-          ) : null}
         </div>
       ) : null}
 
