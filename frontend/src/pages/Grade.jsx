@@ -297,7 +297,7 @@ export default function Grade() {
             </div>
 
             <div style={card}>
-              <div style={cardTitle}>Blocos Utilizados</div>
+              <div style={cardTitle}>Slots Utilizados</div>
               <div style={cardValue}>
                 {stats?.blocos_usados ?? "-"} / {stats?.total_blocos ?? "-"}
               </div>

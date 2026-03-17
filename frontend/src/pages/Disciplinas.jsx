@@ -177,11 +177,12 @@ IPCP_EPTURMA21,Sandra,,2`}
             <strong>prof</strong>: professor ou professores
           </div>
           <div>
-            <strong>semestre</strong>: pode ficar vazio
+            <strong>semestre</strong>: pode ficar vazio mas deve existir o
+            espaço
           </div>
           <div>
             <strong>aulas_por_semana</strong>: se ficar vazio, o sistema assume
-            1
+            que é 1
           </div>
         </div>
 
@@ -227,7 +228,7 @@ IPCP_EPTURMA21,Sandra,,2`}
             min="1"
             value={aulasPorSemana}
             onChange={(e) => setAulasPorSemana(e.target.value)}
-            placeholder="Aulas/semana"
+            placeholder="Aula por semana"
             style={{ width: 160, padding: 8 }}
           />
         </div>
@@ -275,7 +276,7 @@ IPCP_EPTURMA21,Sandra,,2`}
         <Botao texto="← Voltar" onClick={() => setStep(0)} cor="#64748b" />
         <Botao
           texto="Próximo: Definir Restrições →"
-          onClick={() => setStep(2)}
+          onClick={() => setStep(3)}
           cor="#16a34a"
         />
       </div>

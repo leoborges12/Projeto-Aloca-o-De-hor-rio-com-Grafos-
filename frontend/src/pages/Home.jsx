@@ -1,4 +1,5 @@
 import Botao from "../components/Botao";
+import logounipampa from "../assets/logoUnipampa.jpg";
 
 export default function Home({ setStep }) {
   return (
@@ -11,10 +12,10 @@ export default function Home({ setStep }) {
       }}
     >
       <img
-        src="/logoUnipampa.png"
-        alt="Julio é monstro"
+        src={logounipampa}
+        alt="UNIPAMPA"
         style={{
-          width: 140,
+          width: 250,
           marginBottom: 20,
         }}
       />
@@ -46,8 +47,8 @@ export default function Home({ setStep }) {
         <div style={card}>
           <h3>1️⃣ Configurar Grade</h3>
           <p>
-            Defina número de dias da semana, blocos de horário e parâmetros da
-            grade.
+            Defina número de dias da semana, quantidade de slots de horário e
+            parâmetros da grade.
           </p>
         </div>
 
