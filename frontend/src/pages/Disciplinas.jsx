@@ -30,7 +30,7 @@ export default function Disciplinas() {
   const [nome, setNome] = useState("");
   const [prof, setProf] = useState("");
   const [semestre, setSemestre] = useState("");
-  const [aulasPorSemana, setAulasPorSemana] = useState(1);
+  const [aulasPorSemana, setAulasPorSemana] = useState("");
 
   const [erroUpload, setErroUpload] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -228,7 +228,7 @@ IPCP_EPTURMA21,Sandra,,2`}
             min="1"
             value={aulasPorSemana}
             onChange={(e) => setAulasPorSemana(e.target.value)}
-            placeholder="Aula por semana"
+            placeholder="Aula(s) por semana"
             style={{ width: 160, padding: 8 }}
           />
         </div>

@@ -143,7 +143,7 @@ export default function FormatosRestricoes() {
         para conferência e edição manual.
       </p>
 
-      <div style={{ marginBottom: 16, color: "#334155" }}>
+      <div style={{ marginBottom: 16, color: "#334155", fontSize: 20 }}>
         <strong>Restrições já carregadas nesta sessão:</strong> {total}
       </div>
 
@@ -162,7 +162,7 @@ Cálculo I,3`}
         />
 
         <CardFormato
-          titulo="Dia fixo"
+          titulo="Dia Fixo "
           descricao="Define que uma disciplina deve ocorrer em um dia específico."
           exemplo={`disciplina,dia
 Algoritmos I,seg

@@ -8,7 +8,7 @@ export default function Restricoes() {
   const [tipoManual, setTipoManual] = useState("fixo");
   const [disciplina, setDisciplina] = useState("");
   const [disciplina2, setDisciplina2] = useState("");
-  const [bloco, setBloco] = useState(0);
+  const [bloco, setBloco] = useState("");
   const [dia, setDia] = useState("");
 
   const resumo = useMemo(() => {
@@ -109,9 +109,7 @@ export default function Restricoes() {
       >
         <ResumoCard titulo="Fixo" valor={resumo.fixo} />
         <ResumoCard titulo="Dia fixo" valor={resumo.dia_fixo} />
-        <ResumoCard titulo="Não coincidir" valor={resumo.nao_coincidir} />
-        <ResumoCard titulo="Mesmo bloco" valor={resumo.mesmo_bloco} />
-        <ResumoCard titulo="Mesmo horário" valor={resumo.mesmo_horario} />
+        <ResumoCard titulo="Mesmo horario" valor={resumo.mesmo_bloco} />
       </div>
 
       <div
@@ -259,7 +257,7 @@ export default function Restricoes() {
       </div>
 
       <div style={{ marginTop: 24, display: "flex", gap: 10 }}>
-        <Botao text="← Voltar" onClick={() => setStep(3)} cor="#64748b" />
+        <Botao texto="←Voltar" onClick={() => setStep(3)} cor="#64748b" />{" "}
         <Botao
           texto="Gerar Grade de Horários →"
           onClick={() => setStep(5)}

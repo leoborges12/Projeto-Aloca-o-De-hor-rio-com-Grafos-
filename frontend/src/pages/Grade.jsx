@@ -143,50 +143,130 @@ export default function Grade() {
     }
   }
 
-  function baixarCSV_matriz() {
+  function baixarCSV_visual() {
     if (!resultado) return;
 
-    const dias = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"].slice(
+    const dias = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"].slice(
       0,
       config.dias_semana,
     );
-    const blocosPorDia = config.blocos_por_dia;
 
+    const blocosPorDia = Number(config.blocos_por_dia || 4);
     const horarios = resultado.horarios || {};
     const alocacao = resultado.alocacao || {};
     const nomeExibicao = resultado.nome_exibicao || {};
 
-    const blocoParaDisc = {};
-    Object.entries(alocacao).forEach(([disc, bloco]) => {
-      blocoParaDisc[Number(bloco)] = nomeExibicao[disc] || disc;
+    const semestrePorDisc = {};
+    (disciplinas || []).forEach((d) => {
+      semestrePorDisc[d.nome] = (d.semestre ?? "").toString().trim();
     });
 
-    const horas = [];
-    for (let i = 0; i < blocosPorDia; i++) {
-      const label = horarios[i] || "";
-      const parts = String(label).split(" ");
-      horas.push(parts[1] || `Bloco ${i}`);
+    const diaMap = {
+      Seg: "seg",
+      Ter: "ter",
+      Qua: "qua",
+      Qui: "qui",
+      Sex: "sex",
+      Sab: "sab",
+      Dom: "dom",
+    };
+
+    function periodoDoIndice(indiceNoDia) {
+      return String(indiceNoDia + 1);
     }
 
-    const linhas = [];
-    linhas.push(["Horario", ...dias].map(escCSV).join(","));
+    const grade = {};
+    const semSemestre = {};
 
-    for (let linha = 0; linha < blocosPorDia; linha++) {
-      const row = [horas[linha]];
-      for (let diaIndex = 0; diaIndex < dias.length; diaIndex++) {
-        const blocoGlobal = diaIndex * blocosPorDia + linha;
-        row.push(blocoParaDisc[blocoGlobal] || "");
+    function pushCell(container, periodo, dia, texto) {
+      if (!container[periodo]) container[periodo] = {};
+      if (!container[periodo][dia]) container[periodo][dia] = [];
+      container[periodo][dia].push(texto);
+    }
+
+    Object.entries(alocacao).forEach(([disc, blocoRaw]) => {
+      const bloco = Number(blocoRaw);
+      const label = horarios[bloco] || "";
+      const parts = String(label).split(" ");
+      const diaTxt = parts[0];
+      const dia = diaMap[diaTxt];
+      if (!dia) return;
+
+      const indiceNoDia = bloco % blocosPorDia;
+      const periodo = periodoDoIndice(indiceNoDia);
+
+      const nomeBase = disc.replace(/\s*\[\d+\/\d+\]/, "");
+
+      const sem = (
+        (resultado.semestre_por_disc && resultado.semestre_por_disc[disc]) ||
+        semestrePorDisc[nomeBase] ||
+        ""
+      )
+        .toString()
+        .trim();
+
+      const nome = nomeExibicao[disc] || nomeBase;
+
+      if (!sem) {
+        pushCell(semSemestre, periodo, dia, nome);
+        return;
       }
-      linhas.push(row.map(escCSV).join(","));
+
+      if (!grade[sem]) grade[sem] = {};
+      pushCell(grade[sem], periodo, dia, nome);
+    });
+
+    const semestresOrdenados = Object.keys(grade).sort((a, b) => {
+      const na = Number(a);
+      const nb = Number(b);
+      if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+      return String(a).localeCompare(String(b));
+    });
+
+    const periodosOrdem = Array.from({ length: blocosPorDia }, (_, i) =>
+      String(i + 1),
+    );
+
+    const linhas = [];
+    linhas.push(["Semestre", "Período", ...dias].map(escCSV).join(","));
+
+    semestresOrdenados.forEach((sem) => {
+      periodosOrdem.forEach((p) => {
+        const row = [sem, p];
+
+        dias.forEach((dia) => {
+          const lista =
+            (grade[sem] && grade[sem][p] && grade[sem][p][dia]) || [];
+          row.push(lista.join("\n"));
+        });
+
+        linhas.push(row.map(escCSV).join(","));
+      });
+    });
+
+    if (Object.keys(semSemestre).length > 0) {
+      linhas.push("");
+      linhas.push(["Disciplinas sem semestre informado"].map(escCSV).join(","));
+      linhas.push(["Período", ...dias].map(escCSV).join(","));
+
+      periodosOrdem.forEach((p) => {
+        const row = [p];
+
+        dias.forEach((dia) => {
+          const lista = (semSemestre[p] && semSemestre[p][dia]) || [];
+          row.push(lista.join("\n"));
+        });
+
+        linhas.push(row.map(escCSV).join(","));
+      });
     }
 
     baixarArquivo(
-      `${(nomeArquivo || "grade").trim()}_matriz.csv`,
+      `${(nomeArquivo || "grade").trim()}_visual.csv`,
       linhas.join("\n"),
       "text/csv;charset=utf-8",
     );
   }
-
   const stats = resultado?.stats;
   const totalDisciplinas = stats?.total_disciplinas_base ?? disciplinas.length;
   const alocadas = stats?.disciplinas_base_alocadas ?? 0;
@@ -198,7 +278,7 @@ export default function Grade() {
       <div
         style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}
       >
-        <Botao texto="← Voltar" onClick={() => setStep(2)} cor="#64748b" />
+        <Botao texto="← Voltar" onClick={() => setStep(4)} cor="#64748b" />
 
         <Botao
           texto={loading ? "Gerando..." : "Gerar Grade"}
@@ -208,7 +288,7 @@ export default function Grade() {
 
         <Botao
           texto="Baixar CSV (matriz)"
-          onClick={baixarCSV_matriz}
+          onClick={baixarCSV_visual}
           cor="#2563eb"
         />
 

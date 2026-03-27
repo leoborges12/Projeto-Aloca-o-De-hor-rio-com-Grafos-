@@ -12,19 +12,25 @@ import csv
 import sys
 import io
 
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, Border, Side
+
 from grafo import construir_grafo, colorir_grafo_balanceado
 from main import montar_horarios, indice_blocos_por_dia
 
 from supabase_client import supabase
 
+
 # --------------------------
 # Helpers
 # --------------------------
+
 
 class _Tee(io.StringIO):
     """
     Captura prints (stdout/stderr) e ao mesmo tempo continua escrevendo no terminal.
     """
+
     def __init__(self, real_stream):
         super().__init__()
         self.real_stream = real_stream
@@ -46,21 +52,44 @@ def _prof_display(prof_raw: str) -> str:
 
 def _norm_dia(dia: str) -> str:
     mapa = {
-        "segunda": "segunda", "seg": "segunda",
-        "terca": "terca", "terça": "terca", "ter": "terca",
-        "quarta": "quarta", "qua": "quarta",
-        "quinta": "quinta", "qui": "quinta",
-        "sexta": "sexta", "sex": "sexta",
-        "sabado": "sabado", "sábado": "sabado", "sab": "sabado",
-        "domingo": "domingo", "dom": "domingo",
+        "segunda": "segunda",
+        "seg": "segunda",
+        "terca": "terca",
+        "terça": "terca",
+        "ter": "terca",
+        "quarta": "quarta",
+        "qua": "quarta",
+        "quinta": "quinta",
+        "qui": "quinta",
+        "sexta": "sexta",
+        "sex": "sexta",
+        "sabado": "sabado",
+        "sábado": "sabado",
+        "sab": "sabado",
+        "domingo": "domingo",
+        "dom": "domingo",
     }
     d = (dia or "").strip().lower()
     return mapa.get(d, "")
 
 
+def _periodo_do_indice(indice_no_dia: int) -> str:
+    return str(indice_no_dia + 1)
+
+
+def _esc_csv(v):
+    s = str(v or "")
+    if '"' in s:
+        s = s.replace('"', '""')
+    if "," in s or "\n" in s or '"' in s:
+        return f'"{s}"'
+    return s
+
+
 # --------------------------
 # Modelos da API
 # --------------------------
+
 
 class Config(BaseModel):
     dias_semana: int = 5
@@ -77,13 +106,16 @@ class Disciplina(BaseModel):
 
 
 class Restricao(BaseModel):
-    tipo: Literal["fixo", "dia_fixo", "nao_coincidir", "mesmo_bloco", "mesmo_horario"] = "fixo"
+    tipo: Literal[
+        "fixo", "dia_fixo", "nao_coincidir", "mesmo_bloco", "mesmo_horario"
+    ] = "fixo"
     disciplina: Optional[str] = None
     bloco: Optional[int] = None
     ocorrencia: Optional[int] = None
     dia: Optional[str] = None
     disciplina1: Optional[str] = None
     disciplina2: Optional[str] = None
+
 
 class Entrada(BaseModel):
     config: Config
@@ -99,6 +131,7 @@ class ExportarGradeEntrada(BaseModel):
     alocacao: Dict[str, int]
     horarios: Dict[str, str]
     nome_exibicao: Dict[str, str] = {}
+    semestre_por_disc: Dict[str, str] = {}
     prefixo: str = "grade"
 
 
@@ -110,7 +143,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # depois você troca pelo domínio do Netlify
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -126,6 +159,7 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 # Health / root
 # --------------------------
 
+
 @app.get("/")
 def root():
     return {"ok": True, "docs": "/docs", "health": "/health"}
@@ -136,9 +170,19 @@ def health():
     return {"ok": True}
 
 
+@app.get("/supabase-test")
+def supabase_test():
+    try:
+        res = supabase.table("cursos").select("*").limit(5).execute()
+        return {"ok": True, "dados": res.data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # --------------------------
 # CSV / datasets
 # --------------------------
+
 
 def _listar_datasets():
     if not DADOS_DIR.exists():
@@ -200,72 +244,81 @@ def _ler_csv_texto(conteudo: str) -> list[dict]:
     return itens
 
 
-def _inferir_restricoes(rows: list[dict], filename: str) -> list[dict]:
-    """
-    Converte linhas de CSV em objetos compatíveis com o model Restricao do back/front:
-    tipo: fixo | dia_fixo | nao_coincidir | mesmo_bloco | mesmo_horario
-
-    Além disso, adiciona:
-    origem: nome do arquivo
-    """
-    fname = filename.lower()
-
+def _inferir_restricoes(rows: list[dict], nome_arquivo: str):
+    fname = nome_arquivo.lower()
     tipo_padrao = None
-    if "fixo" in fname:
-        tipo_padrao = "fixo"
-    elif "dia" in fname and "fix" in fname:
+
+    if "dia_fixo" in fname or ("dia" in fname and "fix" in fname):
         tipo_padrao = "dia_fixo"
-    elif "nao" in fname or "não" in fname or "coincidir" in fname or "restricoes" in fname:
-        tipo_padrao = "nao_coincidir"
+    elif "fixo" in fname:
+        tipo_padrao = "fixo"
     elif "mesmo_horario" in fname:
         tipo_padrao = "mesmo_horario"
     elif "mesmo_bloco" in fname:
         tipo_padrao = "mesmo_bloco"
+    elif (
+        "nao" in fname
+        or "não" in fname
+        or "coincidir" in fname
+        or "restricoes" in fname
+    ):
+        tipo_padrao = "nao_coincidir"
 
     restricoes = []
-    for r in rows:
-        disciplina = r.get("disciplina") or r.get("nome") or ""
-        bloco = r.get("bloco")
-        ocorrencia = r.get("ocorrencia")
-        dia = r.get("dia")
 
-        d1 = r.get("disciplina1") or r.get("d1") or r.get("a") or ""
-        d2 = r.get("disciplina2") or r.get("d2") or r.get("b") or ""
+    for row in rows:
+        disciplina = row.get("disciplina") or row.get("Disciplina")
+        disciplina1 = row.get("disciplina1") or row.get("Disciplina1")
+        disciplina2 = row.get("disciplina2") or row.get("Disciplina2")
+        bloco = row.get("bloco") or row.get("Bloco")
+        dia = row.get("dia") or row.get("Dia")
+        ocorrencia = (
+            row.get("ocorrencia")
+            or row.get("Ocorrencia")
+            or row.get("ocorrência")
+            or row.get("Ocorrência")
+        )
 
-        tipo = (r.get("tipo") or tipo_padrao or "").strip()
+        if isinstance(disciplina, str):
+            disciplina = disciplina.strip() or None
 
-        if not tipo:
-            if disciplina and bloco is not None and str(bloco).strip() != "":
-                tipo = "fixo"
-            elif disciplina and dia:
-                tipo = "dia_fixo"
-            elif d1 and d2:
-                tipo = "nao_coincidir"
+        if isinstance(disciplina1, str):
+            disciplina1 = disciplina1.strip() or None
 
-        obj = {"tipo": tipo, "origem": filename}
+        if isinstance(disciplina2, str):
+            disciplina2 = disciplina2.strip() or None
 
-        if tipo == "fixo":
-            obj["disciplina"] = disciplina
-            obj["bloco"] = int(bloco) if bloco is not None and str(bloco).strip() != "" else None
+        if isinstance(dia, str):
+            dia = dia.strip() or None
 
-            if ocorrencia is not None and str(ocorrencia).strip() != "":
-                try:
-                    obj["ocorrencia"] = int(ocorrencia)
-                except Exception:
-                    obj["ocorrencia"] = None
+        if isinstance(bloco, str):
+            bloco = bloco.strip()
+            if bloco == "":
+                bloco = None
+            else:
+                bloco = int(bloco)
 
-        elif tipo == "dia_fixo":
-            obj["disciplina"] = disciplina
-            obj["dia"] = dia
+        if isinstance(ocorrencia, str):
+            ocorrencia = ocorrencia.strip()
+            if ocorrencia == "":
+                ocorrencia = None
+            else:
+                ocorrencia = int(ocorrencia)
 
-        elif tipo in ("nao_coincidir", "mesmo_bloco", "mesmo_horario"):
-            obj["disciplina1"] = d1
-            obj["disciplina2"] = d2
+        r = {
+            "tipo": tipo_padrao,
+            "disciplina": disciplina,
+            "disciplina1": disciplina1,
+            "disciplina2": disciplina2,
+            "bloco": bloco,
+            "ocorrencia": ocorrencia,
+            "dia": dia,
+            "origem": nome_arquivo,
+        }
 
-        if obj.get("tipo"):
-            restricoes.append(obj)
-
+        restricoes.append(r)
     return restricoes
+
 
 def _normalizar_disciplina_row(r: dict) -> dict:
     nome_disc = (
@@ -277,18 +330,10 @@ def _normalizar_disciplina_row(r: dict) -> dict:
     ).strip()
 
     prof = (
-        r.get("prof")
-        or r.get("professor")
-        or r.get("Prof")
-        or r.get("Professor")
-        or ""
+        r.get("prof") or r.get("professor") or r.get("Prof") or r.get("Professor") or ""
     ).strip()
 
-    semestre = (
-        r.get("semestre")
-        or r.get("Semestre")
-        or ""
-    ).strip()
+    semestre = (r.get("semestre") or r.get("Semestre") or "").strip()
 
     aps = (
         r.get("aulas_por_semana")
@@ -315,6 +360,7 @@ def _normalizar_disciplina_row(r: dict) -> dict:
 # Endpoints de datasets
 # --------------------------
 
+
 @app.get("/dados")
 def listar_dados():
     return {"datasets": _listar_datasets()}
@@ -326,7 +372,7 @@ def carregar_dados(nome: str):
     if not disc_path.exists():
         raise HTTPException(
             status_code=404,
-            detail=f"Dataset '{nome}' não encontrado (faltando {disc_path.name})"
+            detail=f"Dataset '{nome}' não encontrado (faltando {disc_path.name})",
         )
 
     disciplinas_raw = _ler_csv(disc_path)
@@ -347,6 +393,7 @@ def carregar_dados(nome: str):
 # --------------------------
 # Endpoints de restrições por arquivos
 # --------------------------
+
 
 def _listar_arquivos_restricoes_soltas():
     if not DADOS_DIR.exists():
@@ -375,7 +422,9 @@ def importar_restricoes_por_arquivos(payload: ImportarArquivosEntrada):
     for nome_arq in payload.arquivos:
         p = (DADOS_DIR / nome_arq).resolve()
         if DADOS_DIR not in p.parents or not p.exists() or not p.is_file():
-            raise HTTPException(status_code=404, detail=f"Arquivo não encontrado: {nome_arq}")
+            raise HTTPException(
+                status_code=404, detail=f"Arquivo não encontrado: {nome_arq}"
+            )
 
         rows = _ler_csv(p)
         restrs = _inferir_restricoes(rows, p.name)
@@ -391,6 +440,7 @@ def importar_restricoes_por_arquivos(payload: ImportarArquivosEntrada):
 # --------------------------
 # Upload de CSVs do computador
 # --------------------------
+
 
 @app.post("/upload/disciplinas")
 async def upload_disciplinas(file: UploadFile = File(...)):
@@ -421,8 +471,7 @@ async def upload_restricoes(files: List[UploadFile] = File(...)):
     for f in files:
         if not (f.filename or "").lower().endswith(".csv"):
             raise HTTPException(
-                status_code=400,
-                detail=f"Arquivo inválido (não é .csv): {f.filename}"
+                status_code=400, detail=f"Arquivo inválido (não é .csv): {f.filename}"
             )
 
         raw = await f.read()
@@ -438,6 +487,7 @@ async def upload_restricoes(files: List[UploadFile] = File(...)):
 # Geração da grade
 # --------------------------
 
+
 @app.post("/gerar-grade")
 def gerar_grade(dados: Entrada) -> Dict[str, Any]:
     tee_out = _Tee(sys.stdout)
@@ -451,7 +501,6 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
             horarios = montar_horarios(dias_semana, blocos_por_dia)
             num_blocos = len(horarios)
 
-            # expande disciplinas conforme aulas_por_semana
             disciplinas_orig = [d.model_dump() for d in dados.disciplinas]
 
             disciplinas_list = []
@@ -464,24 +513,32 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
                 aps = max(1, int(d.get("aulas_por_semana", 1) or 1))
 
                 for i in range(aps):
-                    nome_expandido = f"{nome_base} [{i+1}/{aps}]" if aps > 1 else nome_base
+                    nome_expandido = (
+                        f"{nome_base} [{i+1}/{aps}]" if aps > 1 else nome_base
+                    )
 
-                    disciplinas_list.append({
-                        "nome": nome_expandido,
-                        "prof": prof,
-                        "semestre": semestre,
-                        "aulas_por_semana": 1,
-                    })
+                    disciplinas_list.append(
+                        {
+                            "nome": nome_expandido,
+                            "prof": prof,
+                            "semestre": semestre,
+                            "aulas_por_semana": 1,
+                        }
+                    )
 
                     nome_base_por_expandida[nome_expandido] = nome_base
 
             def expandir_nome_disciplina(nome: str) -> List[str]:
                 if not nome:
                     return []
-                encontrados = [n for n, base in nome_base_por_expandida.items() if base == nome]
+                encontrados = [
+                    n for n, base in nome_base_por_expandida.items() if base == nome
+                ]
                 return encontrados if encontrados else [nome]
 
-            def expandir_nome_disciplina_por_ocorrencia(nome: str, ocorrencia: Optional[int]) -> List[str]:
+            def expandir_nome_disciplina_por_ocorrencia(
+                nome: str, ocorrencia: Optional[int]
+            ) -> List[str]:
                 encontrados = expandir_nome_disciplina(nome)
                 if not encontrados:
                     return []
@@ -495,14 +552,12 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
 
                 return []
 
-            # monta grafo base
             G = construir_grafo(
                 disciplinas_list,
                 conflito_por_prof=dados.config.conflito_por_prof,
-                conflito_por_semestre=dados.config.conflito_por_semestre
+                conflito_por_semestre=dados.config.conflito_por_semestre,
             )
 
-            # processa restrições
             fixos: Dict[str, int] = {}
             pares_mesmo: List[tuple] = []
             pares_nao: List[tuple] = []
@@ -512,11 +567,10 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
                 if r.tipo == "fixo":
                     if r.disciplina and r.bloco is not None:
                         expandidas = expandir_nome_disciplina_por_ocorrencia(
-                            r.disciplina,
-                            r.ocorrencia
+                            r.disciplina, r.ocorrencia
                         )
-                        if expandidas:
-                            fixos[expandidas[0]] = int(r.bloco)
+                        for nome_exp in expandidas:
+                            fixos[nome_exp] = int(r.bloco)
 
                 elif r.tipo == "dia_fixo":
                     if r.disciplina and r.dia:
@@ -543,16 +597,13 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
                                 if a != b:
                                     pares_mesmo.append((a, b))
 
-            # aplica "não pode coincidir" como aresta
             for a, b in pares_nao:
                 if a in G and b in G:
                     G.add_edge(a, b)
 
-            # valida fixos
             fixos = {d: b for d, b in fixos.items() if d in G}
             fixos = {d: b for d, b in fixos.items() if 0 <= b < num_blocos}
 
-            # dia_fixo -> domínios
             dominios: Dict[str, set] = {}
             idx_dia = indice_blocos_por_dia(horarios)
 
@@ -560,7 +611,6 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
                 if disc in G and dia_norm in idx_dia:
                     dominios[disc] = set(idx_dia[dia_norm])
 
-            # roda o algoritmo
             cores = colorir_grafo_balanceado(
                 G,
                 num_blocos=num_blocos,
@@ -569,10 +619,9 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
                 pares_mesmo_bloco=pares_mesmo,
                 dominios_por_no=dominios,
                 allow_extra_blocks=False,
-                hard_fail=True
+                hard_fail=True,
             )
 
-            # estatísticas
             dist = defaultdict(int)
             for _, b in cores.items():
                 dist[b] += 1
@@ -580,27 +629,28 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
             usados = sorted(dist.keys())
             desbalanceamento = 0
             if usados:
-                desbalanceamento = max(dist[b] for b in usados) - min(dist[b] for b in usados)
+                desbalanceamento = max(dist[b] for b in usados) - min(
+                    dist[b] for b in usados
+                )
 
             total_disciplinas_base = len(disciplinas_orig)
 
             total_ocorrencias = sum(
-                max(1, int(d.get("aulas_por_semana", 1) or 1))
-                for d in disciplinas_orig
+                max(1, int(d.get("aulas_por_semana", 1) or 1)) for d in disciplinas_orig
             )
 
-            ocorrencias_alocadas = len([
-                k for k in cores.keys()
-                if k in nome_base_por_expandida
-            ])
+            ocorrencias_alocadas = len(
+                [k for k in cores.keys() if k in nome_base_por_expandida]
+            )
 
-            disciplinas_base_alocadas = len(set(
-                nome_base_por_expandida.get(k, k)
-                for k in cores.keys()
-                if k in nome_base_por_expandida
-            ))
+            disciplinas_base_alocadas = len(
+                set(
+                    nome_base_por_expandida.get(k, k)
+                    for k in cores.keys()
+                    if k in nome_base_por_expandida
+                )
+            )
 
-            # nome exibicao
             prof_display = {}
             for d in disciplinas_list:
                 prof_display[d["nome"]] = _prof_display(d.get("prof", ""))
@@ -609,7 +659,9 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
             for disc in G.nodes():
                 nome_base = nome_base_por_expandida.get(disc, disc)
                 prof_txt = prof_display.get(disc, "")
-                nome_exibicao[disc] = f"{nome_base} / {prof_txt}" if prof_txt else nome_base
+                nome_exibicao[disc] = (
+                    f"{nome_base} / {prof_txt}" if prof_txt else nome_base
+                )
 
             logs = (tee_out.getvalue() + "\n" + tee_err.getvalue()).strip()
 
@@ -641,45 +693,263 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
 
         raise HTTPException(status_code=400, detail=detail)
 
+
 # --------------------------
-# Exportação
+# Exportação visual
 # --------------------------
+
+
+def _montar_grade_visual(
+    alocacao: dict, horarios: dict, nome_exibicao: dict, semestre_por_disc: dict
+):
+    dias_ordem = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
+
+    dia_map = {
+        "Seg": "seg",
+        "Ter": "ter",
+        "Qua": "qua",
+        "Qui": "qui",
+        "Sex": "sex",
+        "Sab": "sab",
+        "Dom": "dom",
+    }
+
+    grade = {}
+    sem_semestre = {}
+
+    def push_cell(container, semestre, periodo, dia, texto):
+        if semestre not in container:
+            container[semestre] = {}
+        if periodo not in container[semestre]:
+            container[semestre][periodo] = {}
+        if dia not in container[semestre][periodo]:
+            container[semestre][periodo][dia] = []
+        container[semestre][periodo][dia].append(texto)
+
+    def push_sem_semestre(container, periodo, dia, texto):
+        if periodo not in container:
+            container[periodo] = {}
+        if dia not in container[periodo]:
+            container[periodo][dia] = []
+        container[periodo][dia].append(texto)
+
+    total_blocos = len(horarios)
+    blocos_por_dia = 4
+    if total_blocos % 5 == 0 and total_blocos > 0:
+        blocos_por_dia = total_blocos // 5
+
+    for disc, bloco_raw in alocacao.items():
+        bloco = int(bloco_raw)
+        label = horarios.get(bloco, "")
+        partes = str(label).split(" ")
+        dia_txt = partes[0] if partes else ""
+        dia = dia_map.get(dia_txt)
+        if not dia:
+            continue
+
+        indice_no_dia = bloco % blocos_por_dia
+        periodo = _periodo_do_indice(indice_no_dia)
+
+        nome_base = re.sub(r"\s*\[\d+/\d+\]", "", disc)
+        nome = nome_exibicao.get(disc, nome_base)
+
+        semestre = str(semestre_por_disc.get(nome_base, "")).strip()
+
+        if not semestre:
+            push_sem_semestre(sem_semestre, periodo, dia, nome)
+        else:
+            push_cell(grade, semestre, periodo, dia, nome)
+
+    return grade, sem_semestre, dias_ordem, blocos_por_dia
+
+
+def _gerar_csv_visual(
+    caminho_csv: Path,
+    alocacao: dict,
+    horarios: dict,
+    nome_exibicao: dict,
+    semestre_por_disc: dict,
+):
+    grade, sem_semestre, dias, blocos_por_dia = _montar_grade_visual(
+        alocacao, horarios, nome_exibicao, semestre_por_disc
+    )
+
+    dias_uteis = dias[:5]
+    semestres = sorted(grade.keys(), key=lambda x: str(x))
+    periodos = [str(i + 1) for i in range(blocos_por_dia)]
+
+    linhas = []
+
+    linhas.append(_esc_csv("Oferta Regular — 2026 / 1"))
+    linhas.append(",".join([_esc_csv(x) for x in ["Semestre", "Período", *dias_uteis]]))
+
+    for sem in semestres:
+        for p in periodos:
+            row = [sem, p]
+            for dia in dias_uteis:
+                lista = grade.get(sem, {}).get(p, {}).get(dia, [])
+                row.append("\n".join(lista))
+            linhas.append(",".join(_esc_csv(x) for x in row))
+
+    if sem_semestre:
+        linhas.append("")
+        linhas.append(_esc_csv("Disciplinas sem semestre informado"))
+        linhas.append(",".join([_esc_csv(x) for x in ["Período", *dias_uteis]]))
+
+        for p in periodos:
+            row = [p]
+            for dia in dias_uteis:
+                lista = sem_semestre.get(p, {}).get(dia, [])
+                row.append("\n".join(lista))
+            linhas.append(",".join(_esc_csv(x) for x in row))
+
+    caminho_csv.write_text("\n".join(linhas), encoding="utf-8-sig")
+
+
+def _gerar_xlsx_visual(
+    caminho_xlsx: Path,
+    alocacao: dict,
+    horarios: dict,
+    nome_exibicao: dict,
+    semestre_por_disc: dict,
+):
+    grade, sem_semestre, dias, blocos_por_dia = _montar_grade_visual(
+        alocacao, horarios, nome_exibicao, semestre_por_disc
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Grade"
+
+    bold = Font(bold=True)
+    title_font = Font(bold=True, size=14)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    top_left = Alignment(horizontal="left", vertical="top", wrap_text=True)
+    thin = Side(style="thin")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    dias_uteis = dias[:5]
+    headers = ["Semestre", "Período", *dias_uteis]
+
+    # título principal
+    ws.merge_cells("A1:G1")
+    ws["A1"] = "Oferta Regular — 2026 / 1"
+    ws["A1"].font = title_font
+    ws["A1"].alignment = center
+
+    # cabeçalho tabela principal
+    for c, h in enumerate(headers, start=1):
+        cell = ws.cell(row=2, column=c, value=h)
+        cell.font = bold
+        cell.alignment = center
+        cell.border = border
+
+    row_idx = 3
+    semestres = sorted(grade.keys(), key=lambda x: str(x))
+    periodos = [str(i + 1) for i in range(blocos_por_dia)]
+
+    for sem in semestres:
+        inicio_sem = row_idx
+
+        for p in periodos:
+            linha = [sem, p]
+            for dia in dias_uteis:
+                lista = grade.get(sem, {}).get(p, {}).get(dia, [])
+                linha.append("\n".join(lista))
+            ws.append(linha)
+
+            for c in range(1, 8):
+                cell = ws.cell(row=row_idx, column=c)
+                cell.border = border
+                cell.alignment = center if c <= 2 else top_left
+
+            row_idx += 1
+
+        if row_idx - 1 > inicio_sem:
+            ws.merge_cells(
+                start_row=inicio_sem, start_column=1, end_row=row_idx - 1, end_column=1
+            )
+            ws.cell(row=inicio_sem, column=1).alignment = center
+            ws.cell(row=inicio_sem, column=1).font = bold
+            ws.cell(row=inicio_sem, column=1).border = border
+
+    # seção sem semestre informado
+    if sem_semestre:
+        row_idx += 2
+
+        ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=6)
+        ws.cell(row=row_idx, column=1, value="Disciplinas sem semestre informado")
+        ws.cell(row=row_idx, column=1).font = title_font
+        ws.cell(row=row_idx, column=1).alignment = center
+
+        row_idx += 1
+        headers2 = ["Período", *dias_uteis]
+        for c, h in enumerate(headers2, start=1):
+            cell = ws.cell(row=row_idx, column=c, value=h)
+            cell.font = bold
+            cell.alignment = center
+            cell.border = border
+
+        row_idx += 1
+        for p in periodos:
+            linha = [p]
+            for dia in dias_uteis:
+                lista = sem_semestre.get(p, {}).get(dia, [])
+                linha.append("\n".join(lista))
+
+            for c, valor in enumerate(linha, start=1):
+                cell = ws.cell(row=row_idx, column=c, value=valor)
+                cell.border = border
+                cell.alignment = center if c == 1 else top_left
+
+            row_idx += 1
+
+    larguras = {
+        "A": 12,
+        "B": 12,
+        "C": 32,
+        "D": 32,
+        "E": 32,
+        "F": 32,
+        "G": 32,
+    }
+    for col, largura in larguras.items():
+        ws.column_dimensions[col].width = largura
+
+    for i in range(1, ws.max_row + 1):
+        ws.row_dimensions[i].height = 34
+
+    wb.save(caminho_xlsx)
+
 
 @app.post("/exportar-grade")
 def exportar_grade(payload: ExportarGradeEntrada) -> Dict[str, Any]:
     try:
-        cores = {str(k): int(v) for k, v in payload.alocacao.items()}
+        alocacao = {str(k): int(v) for k, v in payload.alocacao.items()}
         horarios = {int(k): str(v) for k, v in payload.horarios.items()}
-        nome_exib = payload.nome_exibicao or {k: k for k in cores.keys()}
+        nome_exib = payload.nome_exibicao or {k: k for k in alocacao.keys()}
+        semestre_por_disc = payload.semestre_por_disc or {}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Payload inválido: {e}")
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base = OUT_DIR / f"{payload.prefixo}_{ts}"
+    base_name = f"{payload.prefixo}_{ts}"
+
+    caminho_csv = OUT_DIR / f"{base_name}.csv"
+    caminho_xlsx = OUT_DIR / f"{base_name}.xlsx"
 
     try:
-        from main import salvar_grade_excel_csv
-        salvar_grade_excel_csv(cores, horarios, nome_exib, caminho_base=str(base))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Falha ao salvar grade: {e}")
-
-    csv_path = Path(f"{base}.csv")
-    xlsx_path = Path(f"{base}.xlsx")
-
-    resp = {
-        "base": base.name,
-        "salvo_em": str(OUT_DIR),
-        "csv": f"/out/{csv_path.name}" if csv_path.exists() else None,
-        "xlsx": f"/out/{xlsx_path.name}" if xlsx_path.exists() else None,
-    }
-
-    if not resp["csv"] and not resp["xlsx"]:
-        raise HTTPException(
-            status_code=500,
-            detail="Nenhum arquivo foi gerado. Instale pandas/openpyxl (para xlsx) e verifique permissões."
+        _gerar_csv_visual(caminho_csv, alocacao, horarios, nome_exib, semestre_por_disc)
+        _gerar_xlsx_visual(
+            caminho_xlsx, alocacao, horarios, nome_exib, semestre_por_disc
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Falha ao salvar grade: {e}")
 
-    return resp
+    return {
+        "csv": f"/out/{caminho_csv.name}",
+        "xlsx": f"/out/{caminho_xlsx.name}",
+    }
 
 
 @app.get("/out")
@@ -694,11 +964,3 @@ def baixar_out(arquivo: str):
     if OUT_DIR not in path.parents or not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Arquivo não encontrado")
     return FileResponse(path, filename=path.name)
-
-@app.get("/supabase-test")
-def supabase_test():
-    try:
-        res = supabase.table("cursos").select("*").limit(5).execute()
-        return {"ok": True, "dados": res.data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
