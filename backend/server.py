@@ -1143,3 +1143,26 @@ def baixar_geracoes_json():
         )
 
     return FileResponse(GERACOES_JSON, filename="geracoes.json")
+
+
+from fastapi.responses import FileResponse
+from pathlib import Path
+
+
+@app.get("/admin/geracoes/{geracao_id}/xlsx")
+def baixar_xlsx_geracao(geracao_id: int):
+
+    pasta = Path("out")
+
+    arquivos = list(pasta.glob("*.xlsx"))
+
+    if not arquivos:
+        raise HTTPException(status_code=404, detail="Nenhum XLSX encontrado")
+
+    arquivo_mais_recente = max(arquivos, key=lambda f: f.stat().st_mtime)
+
+    return FileResponse(
+        path=str(arquivo_mais_recente),
+        filename=arquivo_mais_recente.name,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
