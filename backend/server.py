@@ -19,7 +19,7 @@ from grafo import construir_grafo, colorir_grafo_balanceado
 from main import montar_horarios, indice_blocos_por_dia
 
 """"from supabase_client import supabase
-"""""
+""" ""
 from database import Base, engine, SessionLocal
 from models import GeracaoGrade
 
@@ -173,7 +173,8 @@ def root():
 def health():
     return {"ok": True}
 
-""""
+
+"""
 @app.get("/supabase-test")
 def supabase_test():
     try:
@@ -181,7 +182,7 @@ def supabase_test():
         return {"ok": True, "dados": res.data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-""""
+"""
 
 # --------------------------
 # CSV / datasets
