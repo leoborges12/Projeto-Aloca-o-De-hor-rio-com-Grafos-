@@ -11,7 +11,7 @@ import re
 import csv
 import sys
 import io
-
+import json
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
 
@@ -20,6 +20,8 @@ from main import montar_horarios, indice_blocos_por_dia
 
 from supabase_client import supabase
 
+from database import Base, engine, SessionLocal
+from models import GeracaoGrade
 
 # --------------------------
 # Helpers
@@ -140,6 +142,7 @@ class ExportarGradeEntrada(BaseModel):
 # --------------------------
 
 app = FastAPI()
+Base.metadata.create_all(bind=engine)
 
 app.add_middleware(
     CORSMiddleware,
@@ -153,6 +156,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DADOS_DIR = BASE_DIR / "dados"
 OUT_DIR = BASE_DIR / "out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+GERACOES_JSON = OUT_DIR / "geracoes.json"
 
 
 # --------------------------
@@ -665,7 +669,7 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
 
             logs = (tee_out.getvalue() + "\n" + tee_err.getvalue()).strip()
 
-            return {
+            resultado = {
                 "alocacao": cores,
                 "horarios": horarios,
                 "stats": {
@@ -682,6 +686,14 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
                 "logs": logs,
             }
 
+        salvar_geracao_grade(
+            entrada=dados.model_dump(),
+            resultado=resultado,
+            sucesso=True,
+        )
+
+        return resultado
+
     except Exception as e:
         logs = (tee_out.getvalue() + "\n" + tee_err.getvalue()).strip()
         msg = str(e)
@@ -691,6 +703,18 @@ def gerar_grade(dados: Entrada) -> Dict[str, Any]:
             detail += logs + "\n"
         detail += f"\nERRO: {msg}"
 
+        salvar_geracao_grade(
+            entrada=dados.model_dump(),
+            resultado=None,
+            sucesso=False,
+            erro=detail,
+        )
+        salvar_geracao_json(
+            entrada=dados.model_dump(),
+            resultado=None,
+            sucesso=False,
+            erro=detail,
+        )
         raise HTTPException(status_code=400, detail=detail)
 
 
@@ -964,3 +988,157 @@ def baixar_out(arquivo: str):
     if OUT_DIR not in path.parents or not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Arquivo não encontrado")
     return FileResponse(path, filename=path.name)
+
+
+@app.get("/admin/geracoes")
+def listar_geracoes():
+    db = SessionLocal()
+
+    try:
+        geracoes = (
+            db.query(GeracaoGrade).order_by(GeracaoGrade.id.desc()).limit(100).all()
+        )
+
+        return [
+            {
+                "id": g.id,
+                "criado_em": g.criado_em,
+                "sucesso": g.sucesso,
+                "qtd_disciplinas": g.qtd_disciplinas,
+                "qtd_restricoes": g.qtd_restricoes,
+                "total_blocos": g.total_blocos,
+                "blocos_usados": g.blocos_usados,
+                "total_ocorrencias": g.total_ocorrencias,
+                "ocorrencias_alocadas": g.ocorrencias_alocadas,
+                "erro": g.erro,
+            }
+            for g in geracoes
+        ]
+
+    finally:
+        db.close()
+
+
+def salvar_geracao_grade(
+    entrada: dict,
+    resultado: dict | None = None,
+    sucesso: bool = True,
+    erro: str | None = None,
+):
+    db = SessionLocal()
+
+    try:
+        stats = {}
+        if isinstance(resultado, dict):
+            stats = resultado.get("stats", {}) or {}
+
+        registro = GeracaoGrade(
+            sucesso=sucesso,
+            qtd_disciplinas=len(entrada.get("disciplinas", [])),
+            qtd_restricoes=len(entrada.get("restricoes", [])),
+            total_blocos=int(stats.get("total_blocos", 0) or 0),
+            blocos_usados=int(stats.get("blocos_usados", 0) or 0),
+            total_ocorrencias=int(stats.get("total_ocorrencias", 0) or 0),
+            ocorrencias_alocadas=int(stats.get("ocorrencias_alocadas", 0) or 0),
+            erro=erro,
+            entrada_json=entrada,
+            resultado_json=resultado,
+        )
+
+        db.add(registro)
+        db.commit()
+
+    except Exception as e:
+        print("Erro ao salvar geração no banco:", e)
+
+    finally:
+        db.close()
+
+
+@app.get("/admin/geracoes/{geracao_id}")
+def obter_geracao(geracao_id: int):
+    db = SessionLocal()
+
+    try:
+        geracao = db.query(GeracaoGrade).filter(GeracaoGrade.id == geracao_id).first()
+
+        if not geracao:
+            raise HTTPException(status_code=404, detail="Geração não encontrada")
+
+        return {
+            "id": geracao.id,
+            "criado_em": geracao.criado_em,
+            "sucesso": geracao.sucesso,
+            "qtd_disciplinas": geracao.qtd_disciplinas,
+            "qtd_restricoes": geracao.qtd_restricoes,
+            "total_blocos": geracao.total_blocos,
+            "blocos_usados": geracao.blocos_usados,
+            "total_ocorrencias": geracao.total_ocorrencias,
+            "ocorrencias_alocadas": geracao.ocorrencias_alocadas,
+            "erro": geracao.erro,
+            "entrada_json": geracao.entrada_json,
+            "resultado_json": geracao.resultado_json,
+        }
+
+    finally:
+        db.close()
+
+
+def salvar_geracao_json(
+    entrada: dict,
+    resultado: dict | None = None,
+    sucesso: bool = True,
+    erro: str | None = None,
+):
+    try:
+        registros = []
+
+        if GERACOES_JSON.exists():
+            with GERACOES_JSON.open("r", encoding="utf-8") as f:
+                registros = json.load(f)
+
+        stats = {}
+        if isinstance(resultado, dict):
+            stats = resultado.get("stats", {}) or {}
+
+        registro = {
+            "id": len(registros) + 1,
+            "criado_em": datetime.now().isoformat(),
+            "sucesso": sucesso,
+            "qtd_disciplinas": len(entrada.get("disciplinas", [])),
+            "qtd_restricoes": len(entrada.get("restricoes", [])),
+            "total_blocos": int(stats.get("total_blocos", 0) or 0),
+            "blocos_usados": int(stats.get("blocos_usados", 0) or 0),
+            "total_ocorrencias": int(stats.get("total_ocorrencias", 0) or 0),
+            "ocorrencias_alocadas": int(stats.get("ocorrencias_alocadas", 0) or 0),
+            "erro": erro,
+            "entrada_json": entrada,
+            "resultado_json": resultado,
+        }
+
+        registros.append(registro)
+
+        with GERACOES_JSON.open("w", encoding="utf-8") as f:
+            json.dump(registros, f, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        print("Erro ao salvar geração em JSON:", e)
+
+
+@app.get("/admin/geracoes-json")
+def listar_geracoes_json():
+    if not GERACOES_JSON.exists():
+        return []
+
+    with GERACOES_JSON.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@app.get("/admin/geracoes-json/download")
+def baixar_geracoes_json():
+    if not GERACOES_JSON.exists():
+        raise HTTPException(
+            status_code=404, detail="Arquivo de gerações não encontrado"
+        )
+
+    return FileResponse(GERACOES_JSON, filename="geracoes.json")
